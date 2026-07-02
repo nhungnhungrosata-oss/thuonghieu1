@@ -49,7 +49,7 @@ export default function ResultPanel(props: Props) {
           <h1>Xây dựng thương hiệu cá nhân bằng video AI</h1>
           <p>Phân cảnh thông minh, tạo từng clip 8 giây bằng pipeline hiện tại, ghép và tải video hoàn chỉnh.</p>
         </div>
-        <a className={styles.backLink} href="/">Mở công cụ 8 giây cũ</a>
+        <a className={styles.backLink} href="/video-8-giay">Mở công cụ 8 giây cũ</a>
       </div>
 
       <div className={styles.progressPanel}>
