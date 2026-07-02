@@ -8,6 +8,8 @@ const USEAPI_ROOT = 'https://api.useapi.net/v1/google-flow';
 const MAX_IMAGE_SIZE = 4 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
+type FlowAspectRatio = 'portrait' | 'landscape';
+
 function jsonError(message: string, status = 400, raw?: unknown) {
   return NextResponse.json({ ok: false, message, raw }, { status });
 }
@@ -36,14 +38,37 @@ function extractJobId(videoResult: Record<string, any>) {
   return '';
 }
 
-function buildVideoPrompt(script: string) {
+function resolveFlowAspectRatio(formValue: FormDataEntryValue | null, script: string): FlowAspectRatio {
+  const requested = typeof formValue === 'string' ? formValue.trim().toLowerCase() : '';
+
+  if (requested === '16:9' || requested === 'landscape') return 'landscape';
+  if (requested === '9:16' || requested === 'portrait') return 'portrait';
+
+  const normalizedScript = script.toLowerCase();
+  if (
+    normalizedScript.includes('tỷ lệ bố cục mong muốn: 16:9') ||
+    normalizedScript.includes('tỷ lệ 16:9') ||
+    normalizedScript.includes('khung hình 16:9')
+  ) {
+    return 'landscape';
+  }
+
+  return 'portrait';
+}
+
+function buildVideoPrompt(script: string, aspectRatio: FlowAspectRatio) {
+  const formatInstruction = aspectRatio === 'landscape'
+    ? 'Create a realistic 8-second horizontal landscape video in true 16:9 composition from the uploaded start image. Fill the entire 16:9 frame naturally; do not place a vertical video inside a horizontal canvas and do not add black bars.'
+    : 'Create a realistic 8-second vertical portrait video in true 9:16 composition from the uploaded start image. Fill the entire 9:16 frame naturally; do not add black bars.';
+
   return [
-    'Create a realistic 8-second vertical portrait video from the uploaded start image.',
+    formatInstruction,
     'The person in the start image speaks naturally in Vietnamese.',
     'Keep the same face, identity, age, hairstyle, outfit, skin tone and overall appearance as the start image.',
+    'Keep the same main background and environment. Extend the background naturally only as needed to fill the selected frame.',
     'Natural lip movement, friendly professional expression, stable camera, clean lighting.',
     'Do not add text overlay, captions, watermark, logo, distorted face or extra people.',
-    'Vietnamese Northern accent if speech is generated. Do not mix accents.',
+    'Use the Vietnamese regional accent specified in the script. Do not mix accents.',
     `Script/content: ${script.trim()}`
   ].join(' ');
 }
@@ -59,6 +84,7 @@ export async function POST(request: NextRequest) {
     const model = ['veo-3.1-fast', 'veo-3.1-lite', 'veo-3.1-quality'].includes(requestedModel)
       ? requestedModel
       : 'veo-3.1-lite';
+    const aspectRatio = resolveFlowAspectRatio(formData.get('aspectRatio'), script);
 
     if (!image || typeof image === 'string') {
       return jsonError('Vui lòng upload 1 ảnh nhân vật.');
@@ -109,9 +135,9 @@ export async function POST(request: NextRequest) {
 
     const videoPayload: Record<string, unknown> = {
       email: email || undefined,
-      prompt: buildVideoPrompt(script),
+      prompt: buildVideoPrompt(script, aspectRatio),
       model,
-      aspectRatio: 'portrait',
+      aspectRatio,
       duration: 8,
       count: 1,
       startImage: mediaGenerationId,
@@ -149,6 +175,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       jobId,
       mediaGenerationId,
+      aspectRatio,
       raw: videoResult
     });
   } catch (error) {
