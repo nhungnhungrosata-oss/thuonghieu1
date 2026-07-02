@@ -41,12 +41,14 @@ Yêu cầu bắt buộc:
 7. Không lặp câu, không lặp luận điểm, không dùng các đoạn rời rạc. Giữ nhất quán cách xưng hô, nhân vật, bối cảnh, thời gian và phong cách.
 8. Điều chỉnh từ ngữ và nhịp nói phù hợp giọng vùng miền được chọn nhưng không dùng tiếng địa phương khó hiểu.
 9. Biểu cảm khuôn mặt, ánh mắt, cử chỉ tay và cơ thể phải phù hợp nội dung.
-10. Prompt phải yêu cầu giữ nguyên nhân vật từ ảnh tham chiếu giữa mọi cảnh.
-11. Trong mọi prompt phải ghi rõ: không văn bản, không logo, không watermark, không ký tự ngẫu nhiên, không render phụ đề vào video.
-12. Không tạo thông tin sai lệch, cam kết quá mức hoặc nội dung vi phạm.
-13. Trước khi trả kết quả, hãy tự đọc nối toàn bộ voiceover theo thứ tự và sửa lại nếu chưa giống một kịch bản hoàn chỉnh.
-14. Không thêm markdown. Chỉ trả về JSON hợp lệ đúng schema.
-15. Không đưa chain-of-thought, reasoning hoặc giải thích quá trình suy luận vào kết quả.`;
+10. Tuyệt đối giữ nguyên cùng một nhân vật trong toàn bộ video; không đổi người, không đổi khuôn mặt, không đổi trang phục, không đổi nhận diện.
+11. Tuyệt đối giữ nguyên bối cảnh chính trong toàn bộ video; không chuyển sang địa điểm khác, không đổi nền đột ngột, không dựng cảnh khác với mạch đã mô tả.
+12. Prompt phải yêu cầu giữ nguyên nhân vật từ ảnh tham chiếu giữa mọi cảnh.
+13. Trong mọi prompt phải ghi rõ: không văn bản, không logo, không watermark, không ký tự ngẫu nhiên, không render phụ đề vào video.
+14. Không tạo thông tin sai lệch, cam kết quá mức hoặc nội dung vi phạm.
+15. Trước khi trả kết quả, hãy tự đọc nối toàn bộ voiceover theo thứ tự và sửa lại nếu chưa giống một kịch bản hoàn chỉnh.
+16. Không thêm markdown. Chỉ trả về JSON hợp lệ đúng schema.
+17. Không đưa chain-of-thought, reasoning hoặc giải thích quá trình suy luận vào kết quả.`;
 
 type DeepSeekChoice = {
   finish_reason?: string;
@@ -103,8 +105,9 @@ function enforcePromptRules(
     `Tỷ lệ khung hình ${aspectRatio}.`,
     `Giọng nói ${region}, nhịp nói tự nhiên và rõ ràng, hoàn thành lời thoại trong khoảng 8 giây.`,
     `Biểu cảm chủ đạo ${emotion}.`,
-    'Giữ nguyên khuôn mặt, nhận diện, tuổi, tóc, trang phục và ngoại hình của nhân vật từ ảnh tham chiếu.',
-    'Duy trì bối cảnh, ánh sáng và phong cách hình ảnh nhất quán để các cảnh ghép thành một video hoàn chỉnh.',
+    'Giữ nguyên đúng một nhân vật từ ảnh tham chiếu trong toàn bộ video; không thay đổi khuôn mặt, nhận diện, tuổi, tóc, trang phục hay ngoại hình.',
+    'Giữ nguyên cùng một bối cảnh chính xuyên suốt toàn bộ video; không chuyển địa điểm, không đổi nền, không thay cảnh đột ngột.',
+    'Duy trì ánh sáng, bố cục và phong cách hình ảnh nhất quán để các cảnh ghép thành một video hoàn chỉnh.',
     'Không hiển thị văn bản, không logo, không watermark, không ký tự ngẫu nhiên và không render phụ đề trực tiếp vào video.'
   ].join(' ');
 
@@ -216,6 +219,9 @@ YÊU CẦU VỀ LỜI THOẠI VÀ MẠCH KỊCH BẢN:
 - Cảnh sau phải tiếp tục trực tiếp ý của cảnh trước. Không chào lại, không giới thiệu lại, không tạo hook mới, không lặp ý và không viết mỗi cảnh như một video riêng.
 - Cảnh 1: hook và mở vấn đề. Các cảnh giữa: triển khai từng bước logic. Cảnh cuối: chốt thông điệp hoặc CTA tự nhiên.
 - Mỗi đoạn phải kết thúc trọn ý nhưng vẫn tạo nhịp nối mềm sang đoạn kế tiếp.
+- Tuyệt đối giữ nguyên cùng một nhân vật trong toàn bộ video; không đổi người, không đổi khuôn mặt, không đổi nhận diện và không đổi trang phục.
+- Tuyệt đối giữ nguyên bối cảnh chính trong toàn bộ video; không chuyển địa điểm, không thay nền và không chuyển cảnh sang môi trường khác.
+- Tuyệt đối không để xuất hiện văn bản, logo, watermark, phụ đề render sẵn hay ký tự lạ trên video.
 - Trước khi xuất JSON, tự ghép toàn bộ voiceover và kiểm tra lại tính liên tục của bài nói.
 
 Chỉ trả về một JSON object hợp lệ, không code fence, đúng schema:
@@ -232,12 +238,12 @@ Chỉ trả về một JSON object hợp lệ, không code fence, đúng schema:
       "sceneNumber": 1,
       "duration": ${SCENE_DURATION_SECONDS},
       "objective": "Vai trò của cảnh trong mạch nội dung chung",
-      "visualDescription": "Bối cảnh và nội dung hình ảnh tiếp nối cảnh trước",
+      "visualDescription": "Bối cảnh và nội dung hình ảnh tiếp nối cảnh trước, vẫn giữ cùng môi trường chính",
       "characterAction": "Hành động, ánh mắt, cử chỉ tay và chuyển động cơ thể",
       "facialExpression": "Biểu cảm khuôn mặt cụ thể",
-      "camera": "Góc máy, khung hình và chuyển động camera",
+      "camera": "Góc máy, khung hình và chuyển động camera trong cùng bối cảnh",
       "voiceover": "Một đoạn lời thoại ${TARGET_VOICEOVER_MIN_WORDS}–${TARGET_VOICEOVER_MAX_WORDS} từ, nối liền với cảnh trước và cảnh sau",
-      "videoPrompt": "Prompt tạo video hoàn chỉnh; giữ nhân vật và phong cách nhất quán, không chữ, không logo, không watermark, không phụ đề render trực tiếp"
+      "videoPrompt": "Prompt tạo video hoàn chỉnh; giữ nguyên nhân vật và bối cảnh, không chữ, không logo, không watermark, không phụ đề render trực tiếp"
     }
   ]
 }
@@ -272,6 +278,8 @@ Yêu cầu bắt buộc:
 - Cảnh mới phải giữ đúng vai trò tại vị trí ${scene.sceneNumber}/${sceneCount} và nối tự nhiên với mạch chung của video.
 - Nếu không phải cảnh đầu, không chào lại, không giới thiệu lại chủ đề, không tạo hook mới và không lặp nội dung trước đó.
 - Nếu không phải cảnh cuối, lời thoại phải tạo nhịp nối mềm sang ý tiếp theo. Nếu là cảnh cuối, phải kết thúc trọn vẹn.
+- Tuyệt đối giữ nguyên cùng một nhân vật xuyên suốt video; không đổi người, không đổi khuôn mặt, không đổi nhận diện, không đổi trang phục.
+- Tuyệt đối giữ nguyên bối cảnh chính xuyên suốt video; không chuyển địa điểm, không thay nền, không chuyển sang môi trường khác.
 - Prompt phải giữ nhân vật, bối cảnh và phong cách nhất quán; không văn bản, không logo, không watermark, không ký tự ngẫu nhiên và không render phụ đề.
 
 Chỉ trả về JSON:
@@ -280,10 +288,10 @@ Chỉ trả về JSON:
     "sceneNumber": ${scene.sceneNumber},
     "duration": ${SCENE_DURATION_SECONDS},
     "objective": "Vai trò của cảnh trong mạch nội dung chung",
-    "visualDescription": "Nội dung hình ảnh và bối cảnh tiếp nối",
+    "visualDescription": "Nội dung hình ảnh và bối cảnh tiếp nối, vẫn giữ cùng môi trường chính",
     "characterAction": "Hành động, ánh mắt, cử chỉ và chuyển động cơ thể",
     "facialExpression": "Biểu cảm khuôn mặt",
-    "camera": "Góc máy và chuyển động camera",
+    "camera": "Góc máy và chuyển động camera trong cùng bối cảnh",
     "voiceover": "Lời thoại khoảng 8 giây, nối liền với toàn bộ kịch bản",
     "videoPrompt": "Prompt tạo video hoàn chỉnh"
   }
