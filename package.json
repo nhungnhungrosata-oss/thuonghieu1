@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "node scripts/prepare-ffmpeg.mjs",
+    "prebuild": "node scripts/prepare-ffmpeg.mjs"
   },
   "dependencies": {
     "ffmpeg-static": "5.2.0",

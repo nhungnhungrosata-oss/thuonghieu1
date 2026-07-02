@@ -5,7 +5,18 @@ const nextConfig = {
       { protocol: 'https', hostname: '**' }
     ]
   },
-  serverExternalPackages: ['ffmpeg-static']
+
+  // Giữ ffmpeg-static là package phía server để đường dẫn binary không bị
+  // webpack thay đổi, đồng thời buộc Vercel mang file binary vào function.
+  serverExternalPackages: ['ffmpeg-static'],
+  outputFileTracingIncludes: {
+    '/api/video/merge': [
+      './.ffmpeg/**/*',
+      './node_modules/ffmpeg-static/ffmpeg',
+      './node_modules/ffmpeg-static/ffmpeg.exe',
+      './node_modules/ffmpeg-static/package.json'
+    ]
+  }
 };
 
 export default nextConfig;

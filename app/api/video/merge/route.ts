@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ffmpegPath from 'ffmpeg-static';
@@ -89,23 +90,71 @@ async function downloadClip(url: URL, destination: string) {
   }
 }
 
-function runFfmpeg(args: string[]) {
-  return new Promise<void>((resolve, reject) => {
-    if (!ffmpegPath) {
-      reject(new Error('Máy chủ chưa có FFmpeg để ghép video.'));
-      return;
-    }
+let cachedFfmpegExecutable = '';
 
-    const process = spawn(ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+async function resolveFfmpegExecutable() {
+  if (cachedFfmpegExecutable) return cachedFfmpegExecutable;
+
+  const binaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  const candidates = [
+    process.env.FFMPEG_PATH,
+    path.join(process.cwd(), '.ffmpeg', binaryName),
+    ffmpegPath || undefined,
+    path.join(process.cwd(), 'node_modules', 'ffmpeg-static', binaryName),
+    process.platform === 'win32' ? undefined : '/usr/local/bin/ffmpeg',
+    process.platform === 'win32' ? undefined : '/usr/bin/ffmpeg'
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      await access(candidate, fsConstants.F_OK);
+
+      if (process.platform !== 'win32') {
+        try {
+          await chmod(candidate, 0o755);
+        } catch {
+          // File trong serverless bundle có thể chỉ đọc; tiếp tục kiểm tra quyền chạy.
+        }
+        await access(candidate, fsConstants.X_OK);
+      }
+
+      cachedFfmpegExecutable = candidate;
+      return candidate;
+    } catch {
+      // Thử đường dẫn tiếp theo.
+    }
+  }
+
+  throw new Error(
+    'Không tìm thấy FFmpeg trong bản deploy. Hãy redeploy sau khi cài dependency để Vercel đóng gói thư mục .ffmpeg.'
+  );
+}
+
+async function runFfmpeg(args: string[]) {
+  const executable = await resolveFfmpegExecutable();
+
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(executable, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
 
-    process.stderr.on('data', (chunk: Buffer) => {
+    child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
       if (stderr.length > 12_000) stderr = stderr.slice(-12_000);
     });
 
-    process.on('error', (error: Error) => reject(error));
-    process.on('close', (code: number | null) => {
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') {
+        reject(new Error('FFmpeg chưa được đóng gói trong Vercel Function. Vui lòng redeploy bản mã nguồn mới.'));
+        return;
+      }
+      if (error.code === 'EACCES') {
+        reject(new Error('FFmpeg không có quyền thực thi trên máy chủ.'));
+        return;
+      }
+      reject(error);
+    });
+
+    child.on('close', (code: number | null) => {
       if (code === 0) resolve();
       else reject(new Error(stderr.trim() || `FFmpeg kết thúc với mã ${code}.`));
     });

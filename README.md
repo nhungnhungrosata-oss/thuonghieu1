@@ -57,3 +57,9 @@ Mở:
 ## Ghép video
 
 API ghép video mới sử dụng `ffmpeg-static` phía server. Route này tách biệt hoàn toàn với pipeline tạo video cũ. Khi triển khai Vercel, cần bảo đảm gói FFmpeg được cài trong dependencies và function có đủ thời gian/dung lượng xử lý các clip.
+
+## Lưu ý triển khai FFmpeg trên Vercel
+
+Project dùng `ffmpeg-static` để ghép các cảnh video. Hai lifecycle script `postinstall` và `prebuild` sẽ sao chép binary vào `.ffmpeg/ffmpeg`; `outputFileTracingIncludes` trong `next.config.mjs` buộc Vercel đưa binary này vào API `/api/video/merge`.
+
+Sau khi cập nhật phiên bản này, hãy tạo một deployment mới. Nếu deployment cũ vẫn báo `spawn ... ffmpeg ENOENT`, chọn Redeploy và bỏ chọn tùy chọn dùng lại Build Cache để Vercel cài dependency và tạo lại binary.
