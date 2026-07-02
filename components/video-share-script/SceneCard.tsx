@@ -4,6 +4,7 @@ import { ChangeEvent } from 'react';
 import type { VideoAspectRatio, VideoScene } from '../../lib/video-script';
 import type { EditableSceneField, SceneVideoState } from './client-types';
 import styles from '../../app/kich-ban-video-chia-se/page.module.css';
+import processingStyles from './processing.module.css';
 
 type Props = {
   scene: VideoScene;
@@ -26,18 +27,23 @@ function sceneStatusLabel(status: string) {
   const labels: Record<string, string> = {
     queued: 'Chưa tạo',
     uploading: 'Đang chuẩn bị',
-    created: 'Đã nhận Job ID',
+    created: 'Đã tiếp nhận',
     pending: 'Đang chờ xử lý',
-    processing: 'Đang tạo',
-    running: 'Đang tạo',
+    processing: 'Đang tạo video',
+    running: 'Đang tạo video',
     completed: 'Hoàn thành',
     failed: 'Lỗi'
   };
   return labels[status] || status;
 }
 
+function isActiveVideoStatus(status?: string) {
+  return ['uploading', 'created', 'pending', 'processing', 'running'].includes(status || '');
+}
+
 export default function SceneCard(props: Props) {
   const { scene, videoState } = props;
+  const isActive = isActiveVideoStatus(videoState?.status);
 
   return (
     <article className={styles.sceneCard}>
@@ -111,7 +117,17 @@ export default function SceneCard(props: Props) {
             <strong>Video cảnh {scene.sceneNumber}</strong>
             <span>{sceneStatusLabel(videoState.status)}</span>
           </div>
-          {videoState.jobId && <small>Job ID: {videoState.jobId}</small>}
+
+          {isActive && (
+            <div className={processingStyles.sceneProcessing} role="status" aria-live="polite">
+              <span className={processingStyles.spinner} aria-hidden="true" />
+              <div>
+                <strong>Đang tạo video cảnh {scene.sceneNumber}</strong>
+                <p>Quá trình có thể mất vài phút. Vui lòng giữ trang này mở và chờ hệ thống tự cập nhật.</p>
+              </div>
+            </div>
+          )}
+
           {videoState.error && <p className={styles.inlineError}>{videoState.error}</p>}
           {videoState.videoUrl && (
             <>
