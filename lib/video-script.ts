@@ -20,6 +20,26 @@ export type VideoRegion = (typeof VIDEO_REGIONS)[number];
 export type VideoEmotion = (typeof VIDEO_EMOTIONS)[number];
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 
+const VIDEO_REGION_DISPLAY_LABELS: Record<VideoRegion, string> = {
+  'Giọng Bắc': 'Giọng miền Bắc Việt Nam',
+  'Giọng Trung': 'Giọng miền Trung Việt Nam',
+  'Giọng Nam': 'Giọng miền Nam Việt Nam'
+};
+
+const VIDEO_REGION_ENGLISH_LABELS: Record<VideoRegion, string> = {
+  'Giọng Bắc': 'Northern Vietnamese accent',
+  'Giọng Trung': 'Central Vietnamese accent',
+  'Giọng Nam': 'Southern Vietnamese accent'
+};
+
+export function getVideoRegionDisplayLabel(region: VideoRegion) {
+  return VIDEO_REGION_DISPLAY_LABELS[region];
+}
+
+export function getVideoRegionPromptLabel(region: VideoRegion) {
+  return `${VIDEO_REGION_DISPLAY_LABELS[region]} (${VIDEO_REGION_ENGLISH_LABELS[region]})`;
+}
+
 export type VideoScene = {
   sceneNumber: number;
   duration: number;
