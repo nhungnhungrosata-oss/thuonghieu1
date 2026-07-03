@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent, useEffect, useState } from 'react';
+import { useEffect, useState, type ChangeEvent, type CSSProperties } from 'react';
 import type { VideoAspectRatio, VideoScene } from '../../lib/video-script';
 import type { EditableSceneField, SceneVideoState } from './client-types';
 import styles from '../../app/kich-ban-video-chia-se/page.module.css';
@@ -46,7 +46,7 @@ function countWords(value: string) {
   return normalized ? normalized.split(/\s+/u).length : 0;
 }
 
-const wordCounterStyle = {
+const wordCounterStyle: CSSProperties = {
   flexShrink: 0,
   border: '1px solid rgba(124, 108, 255, 0.28)',
   borderRadius: '999px',
@@ -57,10 +57,10 @@ const wordCounterStyle = {
   fontWeight: 800,
   lineHeight: 1.2,
   letterSpacing: 'normal',
-  textTransform: 'none' as const
+  textTransform: 'none'
 };
 
-const labelRowStyle = {
+const labelRowStyle: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
