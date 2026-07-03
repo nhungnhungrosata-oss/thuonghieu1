@@ -57,6 +57,7 @@ function resolveFlowAspectRatio(formValue: FormDataEntryValue | null, script: st
   return 'portrait';
 }
 
+<<<<<<< HEAD
 function readVideoRegion(formValue: FormDataEntryValue | null): VideoRegion | null {
   const value = typeof formValue === 'string' ? formValue.trim() : '';
   return isVideoRegion(value) ? value : null;
@@ -73,10 +74,14 @@ function buildVideoPrompt(
   region: VideoRegion | null,
   emotion: VideoEmotion | null
 ) {
+=======
+function buildVideoPrompt(script: string, aspectRatio: FlowAspectRatio) {
+>>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   const formatInstruction = aspectRatio === 'landscape'
     ? 'Create a realistic 8-second horizontal landscape video in true 16:9 composition from the uploaded start image. Fill the entire 16:9 frame naturally; do not place a vertical video inside a horizontal canvas and do not add black bars.'
     : 'Create a realistic 8-second vertical portrait video in true 9:16 composition from the uploaded start image. Fill the entire 9:16 frame naturally; do not add black bars.';
 
+<<<<<<< HEAD
   const fixedSelectionInstructions = [
     `FIXED OUTPUT FORMAT (do not deviate): aspect ratio must be exactly ${aspectRatio === 'landscape' ? '16:9 landscape' : '9:16 portrait'}, filling the whole frame with no letterboxing and no black bars on any side.`,
     region
@@ -96,6 +101,16 @@ function buildVideoPrompt(
     'Natural lip movement, stable camera, clean lighting.',
     'Do not add text overlay, captions, watermark, logo, distorted face or extra people.',
     'Do not mix accents; ignore any conflicting accent or aspect-ratio wording below and always follow the FIXED instructions above instead.',
+=======
+  return [
+    formatInstruction,
+    'The person in the start image speaks naturally in Vietnamese.',
+    'Keep the same face, identity, age, hairstyle, outfit, skin tone and overall appearance as the start image.',
+    'Keep the same main background and environment. Extend the background naturally only as needed to fill the selected frame.',
+    'Natural lip movement, friendly professional expression, stable camera, clean lighting.',
+    'Do not add text overlay, captions, watermark, logo, distorted face or extra people.',
+    'Use the Vietnamese regional accent specified in the script. Do not mix accents.',
+>>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
     `Script/content: ${script.trim()}`
   ].filter(Boolean).join(' ');
 }
@@ -112,8 +127,11 @@ export async function POST(request: NextRequest) {
       ? requestedModel
       : 'veo-3.1-lite';
     const aspectRatio = resolveFlowAspectRatio(formData.get('aspectRatio'), script);
+<<<<<<< HEAD
     const region = readVideoRegion(formData.get('region'));
     const emotion = readVideoEmotion(formData.get('emotion'));
+=======
+>>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 
     if (!image || typeof image === 'string') {
       return jsonError('Vui lòng upload 1 ảnh nhân vật.');
@@ -164,7 +182,11 @@ export async function POST(request: NextRequest) {
 
     const videoPayload: Record<string, unknown> = {
       email: email || undefined,
+<<<<<<< HEAD
       prompt: buildVideoPrompt(script, aspectRatio, region, emotion),
+=======
+      prompt: buildVideoPrompt(script, aspectRatio),
+>>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
       model,
       aspectRatio,
       duration: 8,
@@ -205,8 +227,11 @@ export async function POST(request: NextRequest) {
       jobId,
       mediaGenerationId,
       aspectRatio,
+<<<<<<< HEAD
       region: region || undefined,
       emotion: emotion || undefined,
+=======
+>>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
       raw: videoResult
     });
   } catch (error) {
