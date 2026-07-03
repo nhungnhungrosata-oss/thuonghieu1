@@ -2,7 +2,6 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-<<<<<<< HEAD
   gap: 16px;
   margin: 16px 0 20px;
   padding: 17px 19px;
@@ -12,17 +11,6 @@
     linear-gradient(135deg, rgba(124, 108, 255, 0.16), rgba(34, 211, 238, 0.10)),
     rgba(10, 13, 22, 0.94);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.28), 0 0 30px rgba(34, 211, 238, 0.08);
-=======
-  gap: 14px;
-  margin: 14px 0 18px;
-  padding: 16px 18px;
-  border: 1px solid rgba(85, 196, 255, 0.34);
-  border-radius: 16px;
-  background:
-    linear-gradient(135deg, rgba(69, 91, 255, 0.16), rgba(17, 129, 160, 0.12)),
-    rgba(10, 18, 31, 0.94);
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26), 0 0 28px rgba(78, 174, 255, 0.08);
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 }
 
 .processingCopy {
@@ -33,7 +21,6 @@
   display: block;
   margin-bottom: 5px;
   color: #f7fbff;
-<<<<<<< HEAD
   font-family: 'Lexend', 'Inter', system-ui, sans-serif;
   font-size: 14px;
   font-weight: 700;
@@ -43,15 +30,6 @@
   margin: 0 0 11px;
   color: #a7b3c8;
   font-size: 11.5px;
-=======
-  font-size: 14px;
-}
-
-.processingCopy p {
-  margin: 0 0 10px;
-  color: #aebcd0;
-  font-size: 11px;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   line-height: 1.55;
 }
 
@@ -61,48 +39,27 @@
   flex: 0 0 auto;
   border-radius: 999px;
   border-style: solid;
-<<<<<<< HEAD
   border-color: rgba(255, 255, 255, 0.16);
   border-top-color: #22d3ee;
-=======
-  border-color: rgba(255, 255, 255, 0.18);
-  border-top-color: #69d5ff;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   animation: processingSpin 0.85s linear infinite;
 }
 
 .spinner {
-<<<<<<< HEAD
   width: 19px;
   height: 19px;
-=======
-  width: 18px;
-  height: 18px;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   border-width: 2px;
 }
 
 .spinnerLarge {
-<<<<<<< HEAD
   width: 32px;
   height: 32px;
   border-width: 3px;
   box-shadow: 0 0 20px rgba(34, 211, 238, 0.22);
-=======
-  width: 30px;
-  height: 30px;
-  border-width: 3px;
-  box-shadow: 0 0 18px rgba(89, 207, 255, 0.2);
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 }
 
 .liveProgress {
   width: 100%;
-<<<<<<< HEAD
   height: 8px;
-=======
-  height: 7px;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   overflow: hidden;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.07);
@@ -112,18 +69,12 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-<<<<<<< HEAD
   background: linear-gradient(90deg, #7c6cff, #22d3ee);
   box-shadow: 0 0 16px rgba(34, 211, 238, 0.4);
-=======
-  background: linear-gradient(90deg, #7c6cff, #51d6ff);
-  box-shadow: 0 0 14px rgba(81, 214, 255, 0.35);
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   transition: width 300ms ease;
 }
 
 .percent {
-<<<<<<< HEAD
   min-width: 52px;
   border: 1px solid rgba(34, 211, 238, 0.26);
   border-radius: 999px;
@@ -133,37 +84,17 @@
   text-align: center;
   font-size: 11.5px;
   font-weight: 800;
-=======
-  min-width: 48px;
-  border: 1px solid rgba(102, 212, 255, 0.22);
-  border-radius: 999px;
-  padding: 7px 9px;
-  color: #d9f6ff;
-  background: rgba(74, 187, 226, 0.1);
-  text-align: center;
-  font-size: 11px;
-  font-weight: 900;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 }
 
 .sceneProcessing {
   display: flex;
   align-items: center;
-<<<<<<< HEAD
   gap: 13px;
   margin-top: 11px;
   padding: 14px 15px;
   border: 1px solid rgba(34, 211, 238, 0.26);
   border-radius: 13px;
   background: rgba(23, 78, 100, 0.15);
-=======
-  gap: 12px;
-  margin-top: 10px;
-  padding: 13px 14px;
-  border: 1px solid rgba(89, 207, 255, 0.24);
-  border-radius: 12px;
-  background: rgba(29, 91, 120, 0.13);
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 }
 
 .sceneProcessing > div {
@@ -174,25 +105,15 @@
   display: block;
   margin-bottom: 3px;
   color: #e5f8ff;
-<<<<<<< HEAD
   font-size: 11.5px;
   font-weight: 700;
-=======
-  font-size: 11px;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 }
 
 .sceneProcessing p {
   margin: 0;
-<<<<<<< HEAD
   color: #93a6bb;
   font-size: 10.5px;
   line-height: 1.5;
-=======
-  color: #92a7ba;
-  font-size: 10px;
-  line-height: 1.45;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 }
 
 .createVideoButtonRunning {
@@ -200,24 +121,15 @@
   overflow: hidden;
   opacity: 1 !important;
   color: #ffffff !important;
-<<<<<<< HEAD
   background: linear-gradient(135deg, #6152e0, #1798b9) !important;
   box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.24), 0 0 26px rgba(34, 211, 238, 0.2);
-=======
-  background: linear-gradient(135deg, #5d51e8, #218fb6) !important;
-  box-shadow: 0 0 0 1px rgba(99, 207, 255, 0.22), 0 0 24px rgba(99, 207, 255, 0.18);
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
 }
 
 .createVideoButtonRunning::after {
   content: '';
   position: absolute;
   inset: 0;
-<<<<<<< HEAD
   background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.18) 45%, transparent 70%);
-=======
-  background: linear-gradient(105deg, transparent 20%, rgba(255, 255, 255, 0.16) 45%, transparent 70%);
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   transform: translateX(-120%);
   animation: processingSweep 1.6s ease-in-out infinite;
 }
@@ -237,11 +149,7 @@
 @media (max-width: 640px) {
   .globalProcessing {
     grid-template-columns: auto minmax(0, 1fr);
-<<<<<<< HEAD
     padding: 15px;
-=======
-    padding: 14px;
->>>>>>> 92b6eb5e45b1f1f2d914f4dad9d2a3efd94f7134
   }
 
   .percent {
