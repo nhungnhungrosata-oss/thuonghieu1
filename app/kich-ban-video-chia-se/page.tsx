@@ -30,11 +30,16 @@ const DEFAULT_DURATION: VideoDuration = 24;
 const DEFAULT_REGION: VideoRegion = 'Giọng Bắc';
 const DEFAULT_EMOTION: VideoEmotion = 'Tự nhiên, thân thiện';
 const DEFAULT_ASPECT_RATIO: VideoAspectRatio = '9:16';
+const OUTPUT_FRAME_SIZE: Record<VideoAspectRatio, { width: number; height: number }> = {
+  '9:16': { width: 1080, height: 1920 },
+  '16:9': { width: 1920, height: 1080 }
+};
 
 type ScriptApiResponse = { ok: boolean; message?: string; script?: VideoScript; scene?: VideoScene };
 type GenerateResponse = { ok: boolean; jobId?: string; message?: string };
 type JobResponse = { ok: boolean; status?: string; videoUrl?: string; error?: string };
 type MergeErrorResponse = { ok?: boolean; message?: string };
+type NormalizedImageCache = { source: File; aspectRatio: VideoAspectRatio; file: File };
 
 function formatFileSize(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(2)}MB`;
@@ -65,6 +70,68 @@ function makeVideoFileName() {
   return `personal-brand-video-${Date.now()}.mp4`;
 }
 
+function loadImageElement(file: File) {
+  return new Promise<{ image: HTMLImageElement; objectUrl: string }>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.decoding = 'async';
+    image.onload = () => resolve({ image, objectUrl });
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Không thể đọc ảnh để chuẩn hóa tỷ lệ.'));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function normalizeImageForAspectRatio(file: File, aspectRatio: VideoAspectRatio) {
+  const target = OUTPUT_FRAME_SIZE[aspectRatio];
+  const { image, objectUrl } = await loadImageElement(file);
+
+  try {
+    if (!image.naturalWidth || !image.naturalHeight) {
+      throw new Error('Ảnh không có kích thước hợp lệ.');
+    }
+
+    const sourceRatio = image.naturalWidth / image.naturalHeight;
+    const targetRatio = target.width / target.height;
+    if (Math.abs(sourceRatio - targetRatio) < 0.005) return file;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Trình duyệt không hỗ trợ xử lý ảnh.');
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = 'high';
+
+    const scale = Math.max(target.width / image.naturalWidth, target.height / image.naturalHeight);
+    const renderedWidth = image.naturalWidth * scale;
+    const renderedHeight = image.naturalHeight * scale;
+    const offsetX = (target.width - renderedWidth) / 2;
+    const offsetY = (target.height - renderedHeight) / 2;
+
+    context.drawImage(image, offsetX, offsetY, renderedWidth, renderedHeight);
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (value) => value ? resolve(value) : reject(new Error('Không thể xuất ảnh theo tỷ lệ đã chọn.')),
+        'image/jpeg',
+        0.92
+      );
+    });
+
+    const baseName = file.name.replace(/\.[^.]+$/, '') || 'reference-image';
+    return new File([blob], `${baseName}-${aspectRatio.replace(':', 'x')}.jpg`, {
+      type: 'image/jpeg',
+      lastModified: Date.now()
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 export default function VideoShareScriptPage() {
   const [image, setImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
@@ -92,6 +159,7 @@ export default function VideoShareScriptPage() {
   const generationLockRef = useRef(false);
   const videoStatesRef = useRef<Record<number, SceneVideoState>>({});
   const finalVideoUrlRef = useRef('');
+  const normalizedImageRef = useRef<NormalizedImageCache | null>(null);
 
   const sceneCount = sceneCountFromDuration(videoDuration);
 
@@ -218,15 +286,31 @@ export default function VideoShareScriptPage() {
       event.target.value = '';
       return;
     }
+    normalizedImageRef.current = null;
     setImage(file);
     clearVideoOutput();
     setOverallStatus('Ảnh đã sẵn sàng');
   }
 
   function removeImage() {
+    normalizedImageRef.current = null;
     setImage(null);
     clearVideoOutput();
     setOverallStatus('Đang chuẩn bị');
+  }
+
+  async function getNormalizedImage() {
+    if (!image) throw new Error('Thiếu ảnh tham chiếu.');
+
+    const cached = normalizedImageRef.current;
+    if (cached && cached.source === image && cached.aspectRatio === aspectRatio) {
+      return cached.file;
+    }
+
+    setOverallStatus(`Đang chuẩn hóa ảnh theo tỷ lệ ${aspectRatio}`);
+    const normalized = await normalizeImageForAspectRatio(image, aspectRatio);
+    normalizedImageRef.current = { source: image, aspectRatio, file: normalized };
+    return normalized;
   }
 
   async function generateFullScript() {
@@ -372,11 +456,12 @@ export default function VideoShareScriptPage() {
       .find((item) => item.sceneNumber === sceneNumber);
     if (!payload) throw new Error(`Không tìm thấy dữ liệu cảnh ${sceneNumber}.`);
 
+    const normalizedImage = await getNormalizedImage();
     setOverallStatus(`Đang tạo cảnh ${sceneNumber}/${sceneCount}`);
     updateVideoState(sceneNumber, { status: 'uploading', error: undefined, videoUrl: undefined, jobId: undefined });
 
     const formData = new FormData();
-    formData.append('image', image);
+    formData.append('image', normalizedImage);
     formData.append('script', payload.script);
     formData.append('model', payload.model);
 
@@ -570,6 +655,7 @@ export default function VideoShareScriptPage() {
   }
 
   function changeAspectRatio(value: VideoAspectRatio) {
+    normalizedImageRef.current = null;
     setAspectRatio(value);
     invalidateScriptForOptionChange();
   }
