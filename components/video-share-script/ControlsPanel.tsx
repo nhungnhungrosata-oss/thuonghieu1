@@ -7,6 +7,7 @@ import {
   VIDEO_DURATIONS,
   VIDEO_EMOTIONS,
   VIDEO_REGIONS,
+  getVideoRegionDisplayLabel,
   isVideoAspectRatio,
   isVideoDuration,
   isVideoEmotion,
@@ -148,7 +149,9 @@ export default function ControlsPanel(props: Props) {
                 if (isVideoRegion(value)) props.onRegionChange(value);
               }}
             >
-              {VIDEO_REGIONS.map((item) => <option key={item}>{item}</option>)}
+              {VIDEO_REGIONS.map((item) => (
+                <option key={item} value={item}>{getVideoRegionDisplayLabel(item)}</option>
+              ))}
             </select>
           </label>
 
