@@ -25,11 +25,15 @@ const MAX_INPUT_LENGTH = 12_000;
 const MAX_SUMMARY_LENGTH = 2_000;
 const MIN_VOICEOVER_WORDS = 24;
 const MAX_VOICEOVER_WORDS = 28;
+// Ngưỡng chấp nhận thực tế khi kiểm tra (không kích hoạt tự tạo lại) nếu hụt nhẹ dưới mức tối thiểu,
+// để tránh tốn thêm lượt gọi DeepSeek chỉ vì thiếu vài từ. Giới hạn tối đa vẫn là quy định CỨNG, không nới.
+const MIN_ACCEPTABLE_WORDS = MIN_VOICEOVER_WORDS - 4;
 
 const SYSTEM_PROMPT = `Bạn là biên kịch video ngắn tại Việt Nam.
-Mỗi cảnh dài đúng 8 giây và mỗi voiceover BẮT BUỘC có từ ${MIN_VOICEOVER_WORDS} đến ${MAX_VOICEOVER_WORDS} từ tiếng Việt.
-Không được ít hơn ${MIN_VOICEOVER_WORDS} từ và không được vượt quá ${MAX_VOICEOVER_WORDS} từ.
-Hãy tự đếm số từ của từng voiceover trước khi trả kết quả và viết lại ngay nếu chưa đạt.
+Mỗi cảnh dài đúng 8 giây. Quy định về độ dài voiceover:
+- GIỚI HẠN CỨNG, TUYỆT ĐỐI KHÔNG ĐƯỢC VI PHẠM: mỗi voiceover không được vượt quá ${MAX_VOICEOVER_WORDS} từ tiếng Việt trong bất kỳ trường hợp nào.
+- Mục tiêu: mỗi voiceover nên đạt tối thiểu ${MIN_VOICEOVER_WORDS} từ. Nếu hụt vài từ so với mức tối thiểu này thì vẫn chấp nhận được, không sao cả — ưu tiên câu văn tự nhiên, không gượng ép thêm từ cho đủ số lượng.
+Hãy tự đếm số từ của từng voiceover trước khi trả kết quả; nếu voiceover nào vượt quá ${MAX_VOICEOVER_WORDS} từ thì bắt buộc phải viết lại ngắn gọn hơn ngay trước khi trả JSON.
 Các cảnh phải nối tiếp thành một bài nói duy nhất: cảnh đầu tạo hook, cảnh giữa phát triển ý, cảnh cuối chốt thông điệp hoặc CTA.
 Từ cảnh 2 không chào lại, không tạo hook mới, không lặp ý và không viết như video độc lập.
 Giữ nguyên nhân vật, khuôn mặt, trang phục, bối cảnh, cách xưng hô và phong cách trong toàn bộ video.
@@ -64,11 +68,44 @@ function countWords(value: string) {
 
 function hasValidVoiceoverLength(scene: VideoScene) {
   const total = countWords(scene.voiceover);
-  return total >= MIN_VOICEOVER_WORDS && total <= MAX_VOICEOVER_WORDS;
+  return total >= MIN_ACCEPTABLE_WORDS && total <= MAX_VOICEOVER_WORDS;
 }
 
 function voiceoverError() {
-  return `Mỗi lời thoại phải có từ ${MIN_VOICEOVER_WORDS} đến ${MAX_VOICEOVER_WORDS} từ.`;
+  return `Mỗi lời thoại phải có tối đa ${MAX_VOICEOVER_WORDS} từ.`;
+}
+
+const MAX_GENERATION_ATTEMPTS = 4;
+
+// Dự phòng cuối cùng: nếu sau nhiều lần tự sửa AI vẫn vượt quá giới hạn tối đa, tự cắt gọn cục bộ
+// để không bao giờ chặn người dùng bằng lỗi độ dài lời thoại.
+function autoFixVoiceoverLength(voiceover: string): string {
+  const words = voiceover.trim().split(/\s+/).filter(Boolean);
+  if (words.length > MAX_VOICEOVER_WORDS) {
+    const trimmed = words.slice(0, MAX_VOICEOVER_WORDS).join(' ').replace(/[.,;:!?…]+$/, '');
+    return `${trimmed}.`;
+  }
+  return voiceover;
+}
+
+function sceneWordIssue(scene: VideoScene): string | null {
+  const total = countWords(scene.voiceover);
+  // Hụt nhẹ dưới mức tối thiểu (nhưng không quá ít) là chấp nhận được, không tính là lỗi cần sửa.
+  if (total < MIN_ACCEPTABLE_WORDS) return `Cảnh ${scene.sceneNumber}: hiện có ${total} từ, quá ngắn, cần tối thiểu khoảng ${MIN_VOICEOVER_WORDS} từ.`;
+  if (total > MAX_VOICEOVER_WORDS) return `Cảnh ${scene.sceneNumber}: hiện có ${total} từ, VƯỢT QUÁ giới hạn cứng ${MAX_VOICEOVER_WORDS} từ, bắt buộc phải rút ngắn lại.`;
+  return null;
+}
+
+function buildScriptCorrectionPrompt(sceneCount: SceneCount, issues: string[]) {
+  return `Bản kịch bản vừa trả về CHƯA đạt yêu cầu số từ cho voiceover. Chi tiết lỗi:
+${issues.join('\n')}
+
+Hãy trả lại TOÀN BỘ JSON đầy đủ ${sceneCount} cảnh theo đúng schema cũ, giữ nguyên các cảnh đã đúng, chỉ viết lại phần voiceover (và visualDescription/characterAction nếu cần khớp) của những cảnh bị liệt kê ở trên sao cho có đúng từ ${MIN_VOICEOVER_WORDS} đến ${MAX_VOICEOVER_WORDS} từ tiếng Việt. Tự đếm lại từng voiceover trước khi trả kết quả. Chỉ trả JSON, không thêm giải thích.`;
+}
+
+function buildSceneCorrectionPrompt(issue: string) {
+  return `Cảnh vừa viết lại CHƯA đạt yêu cầu số từ. ${issue}
+Hãy viết lại đúng cảnh này với voiceover có từ ${MIN_VOICEOVER_WORDS} đến ${MAX_VOICEOVER_WORDS} từ tiếng Việt, giữ nguyên nội dung, nhân vật, bối cảnh. Tự đếm lại trước khi trả kết quả. Chỉ trả JSON đúng schema cũ, không giải thích.`;
 }
 
 function enforcePromptRules(
@@ -81,17 +118,20 @@ function enforcePromptRules(
     `Tỷ lệ khung hình ${aspectRatio}.`,
     `Giọng nói ${region}, rõ ràng và tự nhiên.`,
     `Biểu cảm chủ đạo ${emotion}.`,
-    `Nói hết lời thoại ${MIN_VOICEOVER_WORDS}–${MAX_VOICEOVER_WORDS} từ trong cảnh 8 giây.`,
+    `Nói hết lời thoại trong cảnh 8 giây, tối đa ${MAX_VOICEOVER_WORDS} từ (giới hạn cứng).`,
     'Giữ nguyên nhân vật, khuôn mặt, tóc, trang phục, bối cảnh, ánh sáng và bố cục từ ảnh tham chiếu.',
     'Không đổi địa điểm, không đổi nền, không thêm người, không chữ, không logo, không watermark và không phụ đề.'
   ].join(' ');
   return { ...scene, videoPrompt: `${scene.videoPrompt.trim()} ${rules}`.trim() };
 }
 
-async function callDeepSeek(
-  messages: Array<{ role: 'system' | 'user'; content: string }>,
-  maxTokens: number
-) {
+type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+
+type DeepSeekCallResult =
+  | { errorResponse: NextResponse<{ ok: boolean; message: string }> }
+  | { value: unknown; raw: string };
+
+async function callDeepSeek(messages: ChatMessage[], maxTokens: number): Promise<DeepSeekCallResult> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
   if (!apiKey) return { errorResponse: jsonError('Chưa cấu hình DeepSeek API Key.', 500) } as const;
 
@@ -132,8 +172,9 @@ async function callDeepSeek(
       return { errorResponse: jsonError('DeepSeek không trả về kịch bản đầy đủ.', 502) } as const;
     }
 
+    const raw = choice.message.content;
     try {
-      return { value: parseJsonContent(choice.message.content) } as const;
+      return { value: parseJsonContent(raw), raw } as const;
     } catch {
       return { errorResponse: jsonError('DeepSeek không trả về JSON hợp lệ.', 502) } as const;
     }
@@ -162,8 +203,9 @@ Số cảnh: ${sceneCount}. Mỗi cảnh: 8 giây. Tổng thời lượng: ${tot
 Giọng: ${region}. Biểu cảm: ${emotion}. Tỷ lệ: ${aspectRatio}.
 
 QUY TẮC BẮT BUỘC:
-- Mỗi voiceover phải có từ ${MIN_VOICEOVER_WORDS} đến ${MAX_VOICEOVER_WORDS} từ tiếng Việt, không ít hơn và không nhiều hơn.
-- Tự đếm từng voiceover trước khi trả JSON.
+- GIỚI HẠN CỨNG: mỗi voiceover TUYỆT ĐỐI không được vượt quá ${MAX_VOICEOVER_WORDS} từ tiếng Việt.
+- Mục tiêu: mỗi voiceover nên đạt tối thiểu khoảng ${MIN_VOICEOVER_WORDS} từ, nhưng nếu hụt vài từ vẫn được, không cần thêm từ gượng ép.
+- Tự đếm từng voiceover trước khi trả JSON; nếu vượt ${MAX_VOICEOVER_WORDS} từ thì bắt buộc rút gọn lại.
 - Các cảnh nối liền thành một bài nói duy nhất; không chào lại, không lặp ý.
 - Giữ nguyên nhân vật, trang phục và bối cảnh. Không chữ, logo, watermark hoặc phụ đề.
 
@@ -203,7 +245,7 @@ function buildRewriteScenePrompt(
 Tóm tắt: ${summary}
 Cảnh hiện tại: ${JSON.stringify(scene)}
 Giọng: ${region}. Biểu cảm: ${emotion}. Tỷ lệ: ${aspectRatio}.
-Voiceover bắt buộc từ ${MIN_VOICEOVER_WORDS} đến ${MAX_VOICEOVER_WORDS} từ tiếng Việt. Hãy tự đếm trước khi trả kết quả.
+Voiceover TUYỆT ĐỐI không được vượt quá ${MAX_VOICEOVER_WORDS} từ tiếng Việt (giới hạn cứng); nên đạt tối thiểu khoảng ${MIN_VOICEOVER_WORDS} từ nhưng hụt vài từ vẫn chấp nhận được. Hãy tự đếm trước khi trả kết quả.
 Giữ nguyên sceneNumber, duration = 8, nhân vật, trang phục và bối cảnh. Không chữ, logo, watermark hoặc phụ đề.
 Chỉ trả JSON: {"scene":{"sceneNumber":${scene.sceneNumber},"duration":8,"objective":"...","visualDescription":"...","characterAction":"...","facialExpression":"...","camera":"...","voiceover":"${MIN_VOICEOVER_WORDS}–${MAX_VOICEOVER_WORDS} từ","videoPrompt":"..."}}`;
 }
@@ -240,17 +282,46 @@ export async function POST(request: NextRequest) {
     if (!scene || scene.sceneNumber < 1 || scene.sceneNumber > sceneCount) {
       return jsonError('Cảnh cần viết lại không hợp lệ.');
     }
-    const result = await callDeepSeek([
+
+    const messages: ChatMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: buildRewriteScenePrompt(summary, scene, sceneCount, region, emotion, aspectRatio) }
-    ], 1800);
-    if ('errorResponse' in result) return result.errorResponse;
-    const record = typeof result.value === 'object' && result.value !== null
-      ? result.value as Record<string, unknown>
-      : null;
-    const normalized = normalizeVideoScene(record?.scene, scene.sceneNumber);
-    if (!normalized || !hasValidVoiceoverLength(normalized)) return jsonError(voiceoverError(), 502);
-    return NextResponse.json({ ok: true, scene: enforcePromptRules(normalized, region, emotion, aspectRatio) });
+    ];
+
+    let bestScene: VideoScene | null = null;
+    let lastErrorResponse = jsonError(voiceoverError(), 502);
+
+    for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+      const result = await callDeepSeek(messages, 1800);
+      if ('errorResponse' in result) {
+        lastErrorResponse = result.errorResponse;
+        break;
+      }
+      const record = typeof result.value === 'object' && result.value !== null
+        ? result.value as Record<string, unknown>
+        : null;
+      const candidate = normalizeVideoScene(record?.scene, scene.sceneNumber);
+
+      if (candidate && hasValidVoiceoverLength(candidate)) {
+        bestScene = candidate;
+        break;
+      }
+      if (candidate) bestScene = candidate;
+
+      if (attempt === MAX_GENERATION_ATTEMPTS) break;
+      const issue = candidate ? sceneWordIssue(candidate) : `Cảnh ${scene.sceneNumber}: JSON chưa đúng cấu trúc, cần trả đúng schema.`;
+      messages.push({ role: 'assistant', content: result.raw });
+      messages.push({ role: 'user', content: buildSceneCorrectionPrompt(issue ?? '') });
+    }
+
+    if (!bestScene) return lastErrorResponse;
+
+    // Tự động thử lại nhiều lần vẫn chưa đạt -> tự cắt gọn cục bộ để không chặn người dùng
+    const finalScene: VideoScene = hasValidVoiceoverLength(bestScene)
+      ? bestScene
+      : { ...bestScene, voiceover: autoFixVoiceoverLength(bestScene.voiceover) };
+
+    return NextResponse.json({ ok: true, scene: enforcePromptRules(finalScene, region, emotion, aspectRatio) });
   }
 
   const content = typeof body.content === 'string' ? body.content.trim() : '';
@@ -258,22 +329,53 @@ export async function POST(request: NextRequest) {
     return jsonError('Nội dung phải có từ 1 đến 12.000 ký tự.');
   }
 
-  const result = await callDeepSeek([
+  const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: buildFullScriptPrompt(content, sceneCount, region, emotion, aspectRatio) }
-  ], 5400);
-  if ('errorResponse' in result) return result.errorResponse;
+  ];
 
-  const normalized = normalizeVideoScript(result.value, sceneCount, region, emotion, aspectRatio);
-  if (!normalized || normalized.scenes.some((scene) => !hasValidVoiceoverLength(scene))) {
-    return jsonError(voiceoverError(), 502);
+  let bestScript: ReturnType<typeof normalizeVideoScript> = null;
+  let lastErrorResponse = jsonError(voiceoverError(), 502);
+
+  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+    const result = await callDeepSeek(messages, 5400);
+    if ('errorResponse' in result) {
+      lastErrorResponse = result.errorResponse;
+      break;
+    }
+
+    const candidate = normalizeVideoScript(result.value, sceneCount, region, emotion, aspectRatio);
+    const issues = candidate ? candidate.scenes.map(sceneWordIssue).filter((v): v is string => Boolean(v)) : [];
+
+    if (candidate && issues.length === 0) {
+      bestScript = candidate;
+      break;
+    }
+    if (candidate && (!bestScript || issues.length < bestScript.scenes.map(sceneWordIssue).filter(Boolean).length)) {
+      bestScript = candidate;
+    }
+
+    if (attempt === MAX_GENERATION_ATTEMPTS) break;
+    messages.push({ role: 'assistant', content: result.raw });
+    messages.push({
+      role: 'user',
+      content: buildScriptCorrectionPrompt(
+        sceneCount,
+        issues.length > 0 ? issues : [`Toàn bộ kịch bản chưa đúng cấu trúc JSON yêu cầu, hãy trả đúng schema với ${sceneCount} cảnh.`]
+      )
+    });
   }
 
-  return NextResponse.json({
-    ok: true,
-    script: {
-      ...normalized,
-      scenes: normalized.scenes.map((scene) => enforcePromptRules(scene, region, emotion, aspectRatio))
-    }
-  });
+  if (!bestScript) return lastErrorResponse;
+
+  // Tự động thử lại nhiều lần vẫn còn cảnh lệch -> tự cắt gọn cục bộ để không chặn người dùng
+  const finalScript = {
+    ...bestScript,
+    scenes: bestScript.scenes.map((scene) => {
+      const fixed = hasValidVoiceoverLength(scene) ? scene : { ...scene, voiceover: autoFixVoiceoverLength(scene.voiceover) };
+      return enforcePromptRules(fixed, region, emotion, aspectRatio);
+    })
+  };
+
+  return NextResponse.json({ ok: true, script: finalScript });
 }
