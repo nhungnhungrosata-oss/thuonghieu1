@@ -23,8 +23,8 @@ const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_INPUT_LENGTH = 12_000;
 const MAX_SUMMARY_LENGTH = 2_000;
-const MIN_VOICEOVER_WORDS = 25;
-const MAX_VOICEOVER_WORDS = 30;
+const MIN_VOICEOVER_WORDS = 24;
+const MAX_VOICEOVER_WORDS = 28;
 
 const SYSTEM_PROMPT = `Bạn là biên kịch video ngắn tại Việt Nam.
 Mỗi cảnh dài đúng 8 giây và mỗi voiceover BẮT BUỘC có từ ${MIN_VOICEOVER_WORDS} đến ${MAX_VOICEOVER_WORDS} từ tiếng Việt.
