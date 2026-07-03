@@ -163,8 +163,8 @@ async function runFfmpeg(args: string[]) {
 
 function outputFilter(aspectRatio: VideoAspectRatio) {
   return aspectRatio === '16:9'
-    ? 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30'
-    : 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30';
+    ? 'scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,fps=30'
+    : 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30';
 }
 
 export async function POST(request: NextRequest) {

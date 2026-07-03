@@ -4,6 +4,7 @@ import { ChangeEvent } from 'react';
 import type { VideoAspectRatio, VideoScene } from '../../lib/video-script';
 import type { EditableSceneField, SceneVideoState } from './client-types';
 import styles from '../../app/kich-ban-video-chia-se/page.module.css';
+import processingStyles from './processing.module.css';
 
 type Props = {
   scene: VideoScene;
@@ -26,18 +27,23 @@ function sceneStatusLabel(status: string) {
   const labels: Record<string, string> = {
     queued: 'Chưa tạo',
     uploading: 'Đang chuẩn bị',
-    created: 'Đã nhận Job ID',
+    created: 'Đã tiếp nhận',
     pending: 'Đang chờ xử lý',
-    processing: 'Đang tạo',
-    running: 'Đang tạo',
+    processing: 'Đang tạo video',
+    running: 'Đang tạo video',
     completed: 'Hoàn thành',
     failed: 'Lỗi'
   };
   return labels[status] || status;
 }
 
+function isActiveVideoStatus(status?: string) {
+  return ['uploading', 'created', 'pending', 'processing', 'running'].includes(status || '');
+}
+
 export default function SceneCard(props: Props) {
   const { scene, videoState } = props;
+  const isActive = isActiveVideoStatus(videoState?.status);
 
   return (
     <article className={styles.sceneCard}>
@@ -86,25 +92,15 @@ export default function SceneCard(props: Props) {
 
       {props.isEditing ? (
         <div className={styles.editGrid}>
-          {([
-            ['objective', 'Mục tiêu cảnh'],
-            ['voiceover', 'Lời thoại'],
-            ['visualDescription', 'Nội dung hình ảnh'],
-            ['characterAction', 'Hành động nhân vật'],
-            ['facialExpression', 'Biểu cảm'],
-            ['camera', 'Góc máy và chuyển động'],
-            ['videoPrompt', 'Prompt tạo video']
-          ] as Array<[EditableSceneField, string]>).map(([field, label]) => (
-            <label key={field} className={field === 'voiceover' || field === 'videoPrompt' ? styles.wideEditField : ''}>
-              <span>{label}</span>
-              <textarea
-                value={scene[field]}
-                onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                  props.onUpdateField(scene.sceneNumber, field, event.target.value)
-                }
-              />
-            </label>
-          ))}
+          <label className={styles.wideEditField}>
+            <span>Lời thoại</span>
+            <textarea
+              value={scene.voiceover}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                props.onUpdateField(scene.sceneNumber, 'voiceover' as EditableSceneField, event.target.value)
+              }
+            />
+          </label>
         </div>
       ) : (
         <div className={styles.sceneContent}>
@@ -112,14 +108,6 @@ export default function SceneCard(props: Props) {
             <span>Lời thoại</span>
             <p>“{scene.voiceover}”</p>
           </div>
-          <dl className={styles.sceneDetails}>
-            <div><dt>Mục tiêu</dt><dd>{scene.objective}</dd></div>
-            <div><dt>Nội dung hình ảnh</dt><dd>{scene.visualDescription}</dd></div>
-            <div><dt>Hành động nhân vật</dt><dd>{scene.characterAction}</dd></div>
-            <div><dt>Biểu cảm</dt><dd>{scene.facialExpression}</dd></div>
-            <div><dt>Góc máy</dt><dd>{scene.camera}</dd></div>
-            <div className={styles.fullDetail}><dt>Prompt tạo video</dt><dd>{scene.videoPrompt}</dd></div>
-          </dl>
         </div>
       )}
 
@@ -129,7 +117,17 @@ export default function SceneCard(props: Props) {
             <strong>Video cảnh {scene.sceneNumber}</strong>
             <span>{sceneStatusLabel(videoState.status)}</span>
           </div>
-          {videoState.jobId && <small>Job ID: {videoState.jobId}</small>}
+
+          {isActive && (
+            <div className={processingStyles.sceneProcessing} role="status" aria-live="polite">
+              <span className={processingStyles.spinner} aria-hidden="true" />
+              <div>
+                <strong>Đang tạo video cảnh {scene.sceneNumber}</strong>
+                <p>Quá trình có thể mất vài phút. Vui lòng giữ trang này mở và chờ hệ thống tự cập nhật.</p>
+              </div>
+            </div>
+          )}
+
           {videoState.error && <p className={styles.inlineError}>{videoState.error}</p>}
           {videoState.videoUrl && (
             <>

@@ -379,6 +379,9 @@ export default function VideoShareScriptPage() {
     formData.append('image', image);
     formData.append('script', payload.script);
     formData.append('model', payload.model);
+    formData.append('aspectRatio', payload.aspectRatio);
+    formData.append('region', payload.region);
+    formData.append('emotion', payload.emotion);
 
     const response = await fetch('/api/generate', { method: 'POST', body: formData });
     const data = await readResponse<GenerateResponse>(response);

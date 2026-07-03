@@ -4,6 +4,7 @@ import type { SceneCount, VideoAspectRatio, VideoScene, VideoScript } from '../.
 import type { EditableSceneField, MergeState, SceneVideoState } from './client-types';
 import SceneCard from './SceneCard';
 import styles from '../../app/kich-ban-video-chia-se/page.module.css';
+import processingStyles from './processing.module.css';
 
 type Props = {
   scriptResult: VideoScript | null;
@@ -64,6 +65,23 @@ export default function ResultPanel(props: Props) {
           <span style={{ width: `${progressPercent}%` }} />
         </div>
       </div>
+
+      {props.videoGenerating && (
+        <div className={processingStyles.globalProcessing} role="status" aria-live="polite">
+          <span className={processingStyles.spinnerLarge} aria-hidden="true" />
+          <div className={processingStyles.processingCopy}>
+            <strong>Hệ thống đang tạo video, vui lòng chờ...</strong>
+            <p>
+              Đã hoàn thành {props.completedVideos}/{props.sceneCount} cảnh. Không tải lại hoặc đóng trang;
+              kết quả sẽ tự động hiển thị khi xử lý xong.
+            </p>
+            <div className={processingStyles.liveProgress}>
+              <span style={{ width: `${progressPercent}%` }} />
+            </div>
+          </div>
+          <span className={processingStyles.percent}>{progressPercent}%</span>
+        </div>
+      )}
 
       {(props.error || props.notice) && (
         <div className={props.error ? styles.errorMessage : styles.noticeMessage} role="status" aria-live="polite">
@@ -159,12 +177,12 @@ export default function ResultPanel(props: Props) {
             </button>
             <button
               type="button"
-              className={styles.createVideoButton}
+              className={`${styles.createVideoButton} ${props.videoGenerating ? processingStyles.createVideoButtonRunning : ''}`}
               disabled={!props.canCreateVideo}
               onClick={props.onCreateVideos}
             >
               {props.videoGenerating
-                ? `Đang xử lý ${props.completedVideos}/${props.sceneCount}`
+                ? `Đang tạo video... ${props.completedVideos}/${props.sceneCount}`
                 : props.completedVideos > 0
                   ? 'Tiếp tục tạo video'
                   : 'Tạo video'}
