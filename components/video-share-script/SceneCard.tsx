@@ -1,6 +1,6 @@
 'use client';
 
-import { ChangeEvent } from 'react';
+import { ChangeEvent, useEffect, useState } from 'react';
 import type { VideoAspectRatio, VideoScene } from '../../lib/video-script';
 import type { EditableSceneField, SceneVideoState } from './client-types';
 import styles from '../../app/kich-ban-video-chia-se/page.module.css';
@@ -60,10 +60,30 @@ const wordCounterStyle = {
   textTransform: 'none' as const
 };
 
+const labelRowStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '8px',
+  marginBottom: '6px'
+};
+
 export default function SceneCard(props: Props) {
   const { scene, videoState } = props;
+  const [voiceoverDraft, setVoiceoverDraft] = useState(scene.voiceover);
   const isActive = isActiveVideoStatus(videoState?.status);
-  const wordCount = countWords(scene.voiceover);
+  const displayedVoiceover = props.isEditing ? voiceoverDraft : scene.voiceover;
+  const wordCount = countWords(displayedVoiceover);
+
+  useEffect(() => {
+    setVoiceoverDraft(scene.voiceover);
+  }, [scene.voiceover]);
+
+  function handleVoiceoverChange(event: ChangeEvent<HTMLTextAreaElement>) {
+    const nextValue = event.target.value;
+    setVoiceoverDraft(nextValue);
+    props.onUpdateField(scene.sceneNumber, 'voiceover' as EditableSceneField, nextValue);
+  }
 
   return (
     <article className={styles.sceneCard}>
@@ -113,40 +133,22 @@ export default function SceneCard(props: Props) {
       {props.isEditing ? (
         <div className={styles.editGrid}>
           <label className={styles.wideEditField}>
-            <span
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-                marginBottom: '6px'
-              }}
-            >
+            <div style={labelRowStyle}>
               <span style={{ marginBottom: 0 }}>Lời thoại</span>
-              <strong style={wordCounterStyle} aria-live="polite">
+              <strong style={wordCounterStyle} aria-live="polite" aria-atomic="true">
                 {wordCount} từ
               </strong>
-            </span>
+            </div>
             <textarea
-              value={scene.voiceover}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                props.onUpdateField(scene.sceneNumber, 'voiceover' as EditableSceneField, event.target.value)
-              }
+              value={voiceoverDraft}
+              onChange={handleVoiceoverChange}
             />
           </label>
         </div>
       ) : (
         <div className={styles.sceneContent}>
           <div className={styles.voiceoverBlock}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-                marginBottom: '6px'
-              }}
-            >
+            <div style={labelRowStyle}>
               <span style={{ marginBottom: 0 }}>Lời thoại</span>
               <strong style={wordCounterStyle}>{wordCount} từ</strong>
             </div>
