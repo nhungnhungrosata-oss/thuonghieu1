@@ -41,9 +41,29 @@ function isActiveVideoStatus(status?: string) {
   return ['uploading', 'created', 'pending', 'processing', 'running'].includes(status || '');
 }
 
+function countWords(value: string) {
+  const normalized = value.trim();
+  return normalized ? normalized.split(/\s+/u).length : 0;
+}
+
+const wordCounterStyle = {
+  flexShrink: 0,
+  border: '1px solid rgba(124, 108, 255, 0.28)',
+  borderRadius: '999px',
+  padding: '4px 8px',
+  color: '#d9d4ff',
+  background: 'rgba(124, 108, 255, 0.13)',
+  fontSize: '10px',
+  fontWeight: 800,
+  lineHeight: 1.2,
+  letterSpacing: 'normal',
+  textTransform: 'none' as const
+};
+
 export default function SceneCard(props: Props) {
   const { scene, videoState } = props;
   const isActive = isActiveVideoStatus(videoState?.status);
+  const wordCount = countWords(scene.voiceover);
 
   return (
     <article className={styles.sceneCard}>
@@ -93,7 +113,20 @@ export default function SceneCard(props: Props) {
       {props.isEditing ? (
         <div className={styles.editGrid}>
           <label className={styles.wideEditField}>
-            <span>Lời thoại</span>
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                marginBottom: '6px'
+              }}
+            >
+              <span style={{ marginBottom: 0 }}>Lời thoại</span>
+              <strong style={wordCounterStyle} aria-live="polite">
+                {wordCount} từ
+              </strong>
+            </span>
             <textarea
               value={scene.voiceover}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
@@ -105,7 +138,18 @@ export default function SceneCard(props: Props) {
       ) : (
         <div className={styles.sceneContent}>
           <div className={styles.voiceoverBlock}>
-            <span>Lời thoại</span>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                marginBottom: '6px'
+              }}
+            >
+              <span style={{ marginBottom: 0 }}>Lời thoại</span>
+              <strong style={wordCounterStyle}>{wordCount} từ</strong>
+            </div>
             <p>“{scene.voiceover}”</p>
           </div>
         </div>
