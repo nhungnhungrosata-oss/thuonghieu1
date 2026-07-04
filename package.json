@@ -1,13 +1,12 @@
 {
   "name": "personal-brand-video-ai-saas",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "postinstall": "node scripts/prepare-ffmpeg.mjs",
     "prebuild": "node scripts/prepare-ffmpeg.mjs"
   },
   "dependencies": {
