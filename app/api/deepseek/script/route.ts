@@ -25,13 +25,13 @@ const MAX_INPUT_LENGTH = 12_000;
 const MAX_SUMMARY_LENGTH = 2_000;
 const MIN_VOICEOVER_WORDS = 24;
 const MAX_VOICEOVER_WORDS = 28;
-// Ngưỡng chấp nhận thực tế khi kiểm tra (không kích hoạt tự tạo lại) nếu hụt nhẹ dưới mức tối thiểu,
-// để tránh tốn thêm lượt gọi DeepSeek chỉ vì thiếu vài từ. Giới hạn tối đa vẫn là quy định CỨNG, không nới.
-const MIN_ACCEPTABLE_WORDS = MIN_VOICEOVER_WORDS - 4;
+// Ngưỡng chấp nhận thực tế khi kiểm tra: chỉ nới 2 từ so với mức tối thiểu (không phải 4)
+// để tránh việc AI "chạm đáy" 20 từ vẫn được coi là đạt. Giới hạn tối đa vẫn là quy định CỨNG, không nới.
+const MIN_ACCEPTABLE_WORDS = MIN_VOICEOVER_WORDS - 2;
 
 const SYSTEM_PROMPT = `Bạn là biên kịch video ngắn với hơn 20 năm kinh nghiệm sản xuất nội dung viral cho TikTok, Reels và YouTube Shorts tại Việt Nam. Bạn có tai nghe nhạy với nhịp đọc của giọng nói tiếng Việt và biết chính xác một câu thoại cần dài bao nhiêu để vừa khít với hình ảnh, không bị hụt hơi cũng không bị cắt ngang.
 
-Mỗi cảnh trong video có thời lượng cố định 8 giây. Trước khi viết voiceover cho một cảnh, hãy tưởng tượng bạn đang đọc to đoạn đó với tốc độ dẫn chuyện tự nhiên (không đọc vội, không kéo dài), và ước lượng xem nó có vừa khít 8 giây hay không. Với tốc độ đó, một câu thoại tiếng Việt vừa khít 8 giây thường rơi vào khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ — đây là cảm nhận về nhịp đọc thực tế, không phải một con số cần đếm máy móc. Hãy để câu văn tự nhiên, có cảm xúc và đúng văn phong dẫn dắt trước, sau đó tinh chỉnh độ dài sao cho vừa vặn nhịp đọc đó.
+Mỗi cảnh trong video có thời lượng cố định 8 giây. Trước khi viết voiceover cho một cảnh, hãy tưởng tượng bạn đang đọc to đoạn đó với tốc độ dẫn chuyện tự nhiên (không đọc vội, không kéo dài), và ước lượng xem nó có vừa khít 8 giây hay không. Với tốc độ đó, một câu thoại tiếng Việt vừa khít 8 giây thường rơi vào khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ — đây là cảm nhận về nhịp đọc thực tế, không phải một con số cần đếm máy móc. Nếu phân vân giữa viết ngắn hay dài, hãy nghiêng về phía dài hơn trong khoảng đó (gần ${MAX_VOICEOVER_WORDS} từ) thay vì chỉ chạm mức tối thiểu — 8 giây là khoảng thời gian khá đủ để diễn đạt trọn vẹn một ý, đừng bỏ phí. Hãy để câu văn tự nhiên, có cảm xúc và đúng văn phong dẫn dắt trước, sau đó tinh chỉnh độ dài sao cho vừa vặn nhịp đọc đó.
 
 Các cảnh phải nối tiếp thành một bài nói duy nhất: cảnh đầu tạo hook cuốn người xem trong vài giây đầu, các cảnh giữa phát triển ý mạch lạc, cảnh cuối chốt thông điệp hoặc lời kêu gọi hành động.
 Từ cảnh 2 trở đi không chào lại, không tạo hook mới, không lặp ý và không viết như một video độc lập — người xem phải cảm nhận đây là một mạch nói liền mạch từ đầu đến cuối.
@@ -202,7 +202,7 @@ Số cảnh: ${sceneCount}. Mỗi cảnh: 8 giây. Tổng thời lượng: ${tot
 Giọng: ${region}. Biểu cảm: ${emotion}. Tỷ lệ: ${aspectRatio}.
 
 QUY TẮC BẮT BUỘC:
-- Mỗi voiceover cần vừa khít 8 giây khi đọc với tốc độ dẫn chuyện tự nhiên — tương đương khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ tiếng Việt. Hãy cảm nhận nhịp đọc thực tế thay vì đếm từ một cách máy móc, và ưu tiên câu văn tự nhiên, đúng cảm xúc.
+- Mỗi voiceover cần vừa khít 8 giây khi đọc với tốc độ dẫn chuyện tự nhiên — tương đương khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ tiếng Việt. Nếu phân vân, hãy nghiêng về phía ${MAX_VOICEOVER_WORDS} từ hơn là chỉ chạm mức ${MIN_VOICEOVER_WORDS} từ. Hãy cảm nhận nhịp đọc thực tế thay vì đếm từ một cách máy móc, và ưu tiên câu văn tự nhiên, đúng cảm xúc.
 - Các cảnh nối liền thành một bài nói duy nhất; không chào lại, không lặp ý.
 - Giữ nguyên nhân vật, trang phục và bối cảnh. Không chữ, logo, watermark hoặc phụ đề.
 
