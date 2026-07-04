@@ -10,10 +10,18 @@ import {
 } from './lib/saas/auth';
 import { getSupabaseConfig } from './lib/saas/config';
 
-const PUBLIC_PATHS = ['/login', '/api/auth/session', '/auth/confirm'];
+const PUBLIC_PATHS = [
+  '/login',
+  '/api/auth/session',
+  '/auth/confirm',
+  '/api/billing/webhook',
+  '/api/cron/reconcile-generations'
+];
+
 const API_QUOTAS: Record<string, { operation: string; limit: number; windowSeconds: number }> = {
   '/api/deepseek/script': { operation: 'deepseek_script', limit: 30, windowSeconds: 3600 },
-  '/api/video/merge': { operation: 'video_merge', limit: 12, windowSeconds: 3600 }
+  '/api/video/merge': { operation: 'video_merge', limit: 12, windowSeconds: 3600 },
+  '/api/billing/checkout': { operation: 'billing_checkout', limit: 10, windowSeconds: 3600 }
 };
 
 function isPublicPath(pathname: string) {
@@ -22,12 +30,8 @@ function isPublicPath(pathname: string) {
 
 function unauthenticatedResponse(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/api/')) {
-    return NextResponse.json(
-      { ok: false, message: 'Bạn cần đăng nhập để tiếp tục.' },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, message: 'Bạn cần đăng nhập để tiếp tục.' }, { status: 401 });
   }
-
   const loginUrl = new URL('/login', request.url);
   loginUrl.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
   return NextResponse.redirect(loginUrl);
@@ -36,7 +40,6 @@ function unauthenticatedResponse(request: NextRequest) {
 async function consumeApiQuota(request: NextRequest, accessToken: string) {
   const quota = request.method === 'POST' ? API_QUOTAS[request.nextUrl.pathname] : undefined;
   if (!quota) return true;
-
   const { url, anonKey } = getSupabaseConfig();
   const response = await fetch(`${url}/rest/v1/rpc/consume_api_quota`, {
     method: 'POST',
@@ -52,7 +55,6 @@ async function consumeApiQuota(request: NextRequest, accessToken: string) {
     }),
     cache: 'no-store'
   });
-
   if (!response.ok) throw new Error('Không kiểm tra được giới hạn API.');
   return Boolean(await response.json());
 }
@@ -82,7 +84,6 @@ async function authorizedResponse(
 
 export async function middleware(request: NextRequest) {
   if (isPublicPath(request.nextUrl.pathname)) return NextResponse.next();
-
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value || '';
   const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value || '';
 
