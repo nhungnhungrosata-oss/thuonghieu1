@@ -30,7 +30,7 @@ const MAX_VOICEOVER_WORDS = 28;
 const MIN_ACCEPTABLE_WORDS = MIN_VOICEOVER_WORDS - 4;
 
 const SYSTEM_PROMPT = `Bạn là biên kịch video ngắn tại Việt Nam.
-Mỗi cảnh dài đúng 8 giây. Quy định về độ dài voiceover:
+Mỗi cảnh dài đúng 8 giây. Độ dài văn bản tâm 24 đến 28 từ Quy định về độ dài voiceover:
 - GIỚI HẠN CỨNG, TUYỆT ĐỐI KHÔNG ĐƯỢC VI PHẠM: mỗi voiceover không được vượt quá ${MAX_VOICEOVER_WORDS} từ tiếng Việt trong bất kỳ trường hợp nào.
 - Mục tiêu: mỗi voiceover nên đạt tối thiểu ${MIN_VOICEOVER_WORDS} từ. Nếu hụt vài từ so với mức tối thiểu này thì vẫn chấp nhận được, không sao cả — ưu tiên câu văn tự nhiên, không gượng ép thêm từ cho đủ số lượng.
 Hãy tự đếm số từ của từng voiceover trước khi trả kết quả; nếu voiceover nào vượt quá ${MAX_VOICEOVER_WORDS} từ thì bắt buộc phải viết lại ngắn gọn hơn ngay trước khi trả JSON.
