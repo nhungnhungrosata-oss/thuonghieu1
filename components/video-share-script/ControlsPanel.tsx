@@ -198,10 +198,8 @@ export default function ControlsPanel(props: Props) {
         disabled={props.scriptLoading || props.rewritingSceneNumber !== null || !props.sourceContent.trim()}
         onClick={props.onGenerateScript}
       >
-        {props.scriptLoading ? 'DeepSeek đang xây dựng kịch bản...' : 'Phân cảnh và tạo lời thoại'}
+        {props.scriptLoading ? 'Đang xây dựng kịch bản...' : 'Phân cảnh và tạo lời thoại'}
       </button>
-
-      <p className={styles.privacyNote}>API key chỉ chạy ở server. Ảnh không được gửi tới DeepSeek.</p>
     </aside>
   );
 }
