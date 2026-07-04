@@ -1,6 +1,13 @@
 'use client';
 
-import { ChangeEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type CSSProperties,
+  type FormEvent
+} from 'react';
 import type { VideoAspectRatio, VideoScene } from '../../lib/video-script';
 import type { EditableSceneField, SceneVideoState } from './client-types';
 import styles from '../../app/kich-ban-video-chia-se/page.module.css';
@@ -41,9 +48,71 @@ function isActiveVideoStatus(status?: string) {
   return ['uploading', 'created', 'pending', 'processing', 'running'].includes(status || '');
 }
 
+function countWords(value: string) {
+  const normalized = value.trim();
+  return normalized ? normalized.split(/\s+/u).length : 0;
+}
+
+const wordCounterStyle: CSSProperties = {
+  flexShrink: 0,
+  border: '1px solid rgba(124, 108, 255, 0.28)',
+  borderRadius: '999px',
+  padding: '4px 8px',
+  color: '#d9d4ff',
+  background: 'rgba(124, 108, 255, 0.13)',
+  fontSize: '10px',
+  fontWeight: 800,
+  lineHeight: 1.2,
+  letterSpacing: 'normal',
+  textTransform: 'none'
+};
+
+const labelRowStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: '8px',
+  marginBottom: '6px'
+};
+
 export default function SceneCard(props: Props) {
   const { scene, videoState } = props;
+  const [voiceoverDraft, setVoiceoverDraft] = useState(scene.voiceover);
+  const [liveWordCount, setLiveWordCount] = useState(() => countWords(scene.voiceover));
+  const liveCounterRef = useRef<HTMLOutputElement | null>(null);
   const isActive = isActiveVideoStatus(videoState?.status);
+  const displayedWordCount = props.isEditing ? liveWordCount : countWords(scene.voiceover);
+
+  useEffect(() => {
+    const nextCount = countWords(scene.voiceover);
+    setVoiceoverDraft(scene.voiceover);
+    setLiveWordCount(nextCount);
+
+    if (liveCounterRef.current) {
+      liveCounterRef.current.value = `${nextCount} từ`;
+    }
+  }, [scene.voiceover, scene.sceneNumber]);
+
+  function handleVoiceoverInput(event: FormEvent<HTMLTextAreaElement>) {
+    const nextValue = event.currentTarget.value;
+    const nextCount = countWords(nextValue);
+
+    setVoiceoverDraft(nextValue);
+    setLiveWordCount(nextCount);
+
+    // Cập nhật trực tiếp để số từ thay đổi ngay cả trước vòng render tiếp theo.
+    if (liveCounterRef.current) {
+      liveCounterRef.current.value = `${nextCount} từ`;
+    }
+  }
+
+  function handleVoiceoverChange(event: ChangeEvent<HTMLTextAreaElement>) {
+    props.onUpdateField(
+      scene.sceneNumber,
+      'voiceover' as EditableSceneField,
+      event.currentTarget.value
+    );
+  }
 
   return (
     <article className={styles.sceneCard}>
@@ -93,19 +162,31 @@ export default function SceneCard(props: Props) {
       {props.isEditing ? (
         <div className={styles.editGrid}>
           <label className={styles.wideEditField}>
-            <span>Lời thoại</span>
+            <div style={labelRowStyle}>
+              <span style={{ marginBottom: 0 }}>Lời thoại</span>
+              <output
+                ref={liveCounterRef}
+                style={wordCounterStyle}
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {displayedWordCount} từ
+              </output>
+            </div>
             <textarea
-              value={scene.voiceover}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                props.onUpdateField(scene.sceneNumber, 'voiceover' as EditableSceneField, event.target.value)
-              }
+              value={voiceoverDraft}
+              onInput={handleVoiceoverInput}
+              onChange={handleVoiceoverChange}
             />
           </label>
         </div>
       ) : (
         <div className={styles.sceneContent}>
           <div className={styles.voiceoverBlock}>
-            <span>Lời thoại</span>
+            <div style={labelRowStyle}>
+              <span style={{ marginBottom: 0 }}>Lời thoại</span>
+              <strong style={wordCounterStyle}>{displayedWordCount} từ</strong>
+            </div>
             <p>“{scene.voiceover}”</p>
           </div>
         </div>

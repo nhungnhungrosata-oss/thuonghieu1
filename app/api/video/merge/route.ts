@@ -1,159 +1,42 @@
-import { spawn } from 'node:child_process';
-import { access, chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import path from 'node:path';
-import ffmpegPath from 'ffmpeg-static';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
 import { NextRequest, NextResponse } from 'next/server';
-import { isVideoAspectRatio, type VideoAspectRatio } from '../../../../lib/video-script';
+import { assertSameOrigin, authenticationErrorResponse, requireApiUser } from '../../../../lib/saas/auth';
+import {
+  completeVideoOutput,
+  createVideoOutput,
+  failVideoOutput,
+  getOwnedRecord,
+  markArchiveFailed,
+  markArchived
+} from '../../../../lib/saas/db';
+import { downloadRemoteVideo, fetchStoredVideo, uploadVideo } from '../../../../lib/saas/storage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const MAX_CLIPS = 6;
-const MAX_CLIP_BYTES = 35 * 1024 * 1024;
-const DOWNLOAD_TIMEOUT_MS = 90_000;
+const MAX_SCENES = 6;
+const MAX_SCENE_BYTES = 40 * 1024 * 1024;
 
-function jsonError(message: string, status: number) {
-  return NextResponse.json({ ok: false, message }, { status });
+function preparedFfmpegPath() {
+  const executable = join(process.cwd(), '.ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  if (existsSync(executable)) return executable;
+  throw new Error('Không tìm thấy FFmpeg đã chuẩn bị. Hãy chạy npm install hoặc redeploy không dùng cache.');
 }
 
-function isBlockedHostname(hostname: string) {
-  const value = hostname.toLowerCase();
-  if (value === 'localhost' || value.endsWith('.localhost') || value.endsWith('.local') || value === '::1') {
-    return true;
-  }
-
-  const match = value.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!match) return false;
-
-  const octets = match.slice(1).map(Number);
-  if (octets.some((item) => item < 0 || item > 255)) return true;
-  const [a, b] = octets;
-
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    a >= 224
-  );
-}
-
-function parseRemoteVideoUrl(value: unknown) {
-  if (typeof value !== 'string') return null;
-
-  try {
-    const url = new URL(value);
-    if (!['https:', 'http:'].includes(url.protocol) || isBlockedHostname(url.hostname)) return null;
-    return url;
-  } catch {
-    return null;
-  }
-}
-
-async function downloadClip(url: URL, destination: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      cache: 'no-store',
-      redirect: 'follow'
-    });
-
-    if (!response.ok) {
-      throw new Error(`Không tải được một cảnh video (HTTP ${response.status}).`);
-    }
-
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (declaredLength > MAX_CLIP_BYTES) {
-      throw new Error('Một cảnh video vượt quá giới hạn dung lượng ghép.');
-    }
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.length) throw new Error('Một cảnh video tải về bị rỗng.');
-    if (bytes.byteLength > MAX_CLIP_BYTES) throw new Error('Một cảnh video vượt quá giới hạn dung lượng ghép.');
-
-    await writeFile(destination, bytes);
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Tải cảnh video mất quá nhiều thời gian.');
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-let cachedFfmpegExecutable = '';
-
-async function resolveFfmpegExecutable() {
-  if (cachedFfmpegExecutable) return cachedFfmpegExecutable;
-
-  const binaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
-  const candidates = [
-    process.env.FFMPEG_PATH,
-    path.join(process.cwd(), '.ffmpeg', binaryName),
-    ffmpegPath || undefined,
-    path.join(process.cwd(), 'node_modules', 'ffmpeg-static', binaryName),
-    process.platform === 'win32' ? undefined : '/usr/local/bin/ffmpeg',
-    process.platform === 'win32' ? undefined : '/usr/bin/ffmpeg'
-  ].filter((candidate): candidate is string => Boolean(candidate));
-
-  for (const candidate of [...new Set(candidates)]) {
-    try {
-      await access(candidate, fsConstants.F_OK);
-
-      if (process.platform !== 'win32') {
-        try {
-          await chmod(candidate, 0o755);
-        } catch {
-          // File trong serverless bundle có thể chỉ đọc; tiếp tục kiểm tra quyền chạy.
-        }
-        await access(candidate, fsConstants.X_OK);
-      }
-
-      cachedFfmpegExecutable = candidate;
-      return candidate;
-    } catch {
-      // Thử đường dẫn tiếp theo.
-    }
-  }
-
-  throw new Error(
-    'Không tìm thấy FFmpeg trong bản deploy. Hãy redeploy sau khi cài dependency để Vercel đóng gói thư mục .ffmpeg.'
-  );
-}
-
-async function runFfmpeg(args: string[]) {
-  const executable = await resolveFfmpegExecutable();
-
+function runFfmpeg(command: string, args: string[]) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(executable, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
-
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
       if (stderr.length > 12_000) stderr = stderr.slice(-12_000);
     });
-
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') {
-        reject(new Error('FFmpeg chưa được đóng gói trong Vercel Function. Vui lòng redeploy bản mã nguồn mới.'));
-        return;
-      }
-      if (error.code === 'EACCES') {
-        reject(new Error('FFmpeg không có quyền thực thi trên máy chủ.'));
-        return;
-      }
-      reject(error);
-    });
-
+    child.on('error', reject);
     child.on('close', (code: number | null) => {
       if (code === 0) resolve();
       else reject(new Error(stderr.trim() || `FFmpeg kết thúc với mã ${code}.`));
@@ -161,59 +44,99 @@ async function runFfmpeg(args: string[]) {
   });
 }
 
-function outputFilter(aspectRatio: VideoAspectRatio) {
+function outputFilter(aspectRatio: '9:16' | '16:9') {
   return aspectRatio === '16:9'
     ? 'scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,setsar=1,fps=30'
     : 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30';
 }
 
+function safeFileName(title: string, outputId: string) {
+  const slug = title
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9-_]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'personal-brand-video';
+  return `${slug}-${outputId}.mp4`;
+}
+
+async function assertBufferSize(buffer: Buffer) {
+  if (!buffer.length) throw new Error('Một cảnh video bị rỗng.');
+  if (buffer.length > MAX_SCENE_BYTES) throw new Error('Một cảnh video vượt quá 40MB.');
+  return buffer;
+}
+
+async function sceneBuffer(userId: string, generationId: string) {
+  const generation = await getOwnedRecord('generations', userId, generationId);
+  if (!generation || generation.status !== 'succeeded') {
+    throw new Error('Một cảnh chưa hoàn thành hoặc không thuộc tài khoản này.');
+  }
+
+  if (generation.storage_status === 'archived' && generation.storage_bucket && generation.storage_path) {
+    const response = await fetchStoredVideo(generation.storage_bucket, generation.storage_path);
+    if (!response.ok) throw new Error('Không đọc được cảnh đã lưu.');
+    return assertBufferSize(Buffer.from(await response.arrayBuffer()));
+  }
+
+  if (!generation.output_url) throw new Error('Cảnh không có file nguồn để ghép.');
+  const buffer = await assertBufferSize(await downloadRemoteVideo(generation.output_url));
+  try {
+    const stored = await uploadVideo(`${userId}/scenes/${generation.id}.mp4`, buffer);
+    await markArchived(generation.id, stored);
+  } catch (error) {
+    await markArchiveFailed(
+      generation.id,
+      error instanceof Error ? error.message : 'Không lưu được cảnh.'
+    ).catch(() => undefined);
+  }
+  return buffer;
+}
+
 export async function POST(request: NextRequest) {
-  let body: Record<string, unknown>;
+  let outputId = '';
+  let workDir = '';
   try {
-    const parsed = await request.json();
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return jsonError('Dữ liệu ghép video không hợp lệ.', 400);
-    }
-    body = parsed as Record<string, unknown>;
-  } catch {
-    return jsonError('Dữ liệu ghép video không hợp lệ.', 400);
-  }
+    assertSameOrigin(request);
+    const { user } = await requireApiUser(request);
+    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const generationIds = Array.isArray(body.generationIds)
+      ? body.generationIds.map((value) => String(value).trim()).filter(Boolean)
+      : [];
+    const aspectRatio: '9:16' | '16:9' = String(body.aspectRatio || '9:16') === '16:9' ? '16:9' : '9:16';
+    const title = String(body.title || 'Video thương hiệu cá nhân').trim().slice(0, 200) || 'Video thương hiệu cá nhân';
 
-  const aspectRatio = body.aspectRatio;
-  const videoUrls = body.videoUrls;
-
-  if (!isVideoAspectRatio(aspectRatio)) {
-    return jsonError('Tỷ lệ video không hợp lệ.', 400);
-  }
-
-  if (!Array.isArray(videoUrls) || videoUrls.length < 2 || videoUrls.length > MAX_CLIPS) {
-    return jsonError(`Cần từ 2 đến ${MAX_CLIPS} cảnh video để ghép.`, 400);
-  }
-
-  const urls = videoUrls.map(parseRemoteVideoUrl);
-  if (urls.some((url) => !url)) {
-    return jsonError('Đường dẫn một cảnh video không hợp lệ.', 400);
-  }
-
-  const workspace = await mkdtemp(path.join(tmpdir(), 'personal-brand-video-'));
-
-  try {
-    const clipPaths: string[] = [];
-    for (let index = 0; index < urls.length; index += 1) {
-      const clipPath = path.join(workspace, `scene-${String(index + 1).padStart(2, '0')}.mp4`);
-      await downloadClip(urls[index]!, clipPath);
-      clipPaths.push(clipPath);
+    const sceneCount = generationIds.length;
+    if (sceneCount < 2 || sceneCount > MAX_SCENES) {
+      return NextResponse.json({ ok: false, message: `Cần từ 2 đến ${MAX_SCENES} cảnh để ghép.` }, { status: 400 });
     }
 
-    const concatListPath = path.join(workspace, 'concat.txt');
-    const concatList = clipPaths.map((clipPath) => `file '${clipPath}'`).join('\n');
-    await writeFile(concatListPath, concatList, 'utf8');
+    const output = await createVideoOutput(user.id, aspectRatio, title);
+    outputId = output.id;
+    workDir = await mkdtemp(join(tmpdir(), 'personal-brand-video-'));
 
-    const outputPath = path.join(workspace, 'personal-brand-video.mp4');
-    await runFfmpeg([
+    const buffers: Buffer[] = [];
+    for (const id of generationIds) buffers.push(await sceneBuffer(user.id, id));
+
+    const inputFiles: string[] = [];
+    for (let index = 0; index < buffers.length; index += 1) {
+      const inputPath = join(workDir, `scene-${String(index + 1).padStart(2, '0')}.mp4`);
+      await writeFile(inputPath, buffers[index]);
+      inputFiles.push(inputPath);
+    }
+
+    const concatListPath = join(workDir, 'concat.txt');
+    await writeFile(
+      concatListPath,
+      inputFiles.map((filePath) => `file '${filePath.replace(/'/g, "'\\''")}'`).join('\n'),
+      'utf8'
+    );
+
+    const outputPath = join(workDir, 'output.mp4');
+    await runFfmpeg(preparedFfmpegPath(), [
       '-hide_banner',
       '-loglevel',
       'error',
+      '-y',
       '-f',
       'concat',
       '-safe',
@@ -227,36 +150,53 @@ export async function POST(request: NextRequest) {
       '-preset',
       'veryfast',
       '-crf',
-      '20',
+      '21',
       '-pix_fmt',
       'yuv420p',
       '-c:a',
       'aac',
       '-b:a',
-      '192k',
+      '160k',
       '-ar',
       '48000',
       '-movflags',
       '+faststart',
-      '-y',
       outputPath
     ]);
 
-    const video = await readFile(outputPath);
-    if (!video.length) throw new Error('Video sau khi ghép bị rỗng.');
+    const finalBuffer = await readFile(outputPath);
+    if (!finalBuffer.length) throw new Error('Video sau khi ghép bị rỗng.');
+    const stored = await uploadVideo(`${user.id}/outputs/${outputId}.mp4`, finalBuffer);
+    await completeVideoOutput(outputId, stored);
+    const fileName = safeFileName(title, outputId);
 
-    return new Response(new Uint8Array(video), {
+    return new Response(new Uint8Array(finalBuffer), {
       status: 200,
       headers: {
         'Content-Type': 'video/mp4',
-        'Content-Length': String(video.length),
-        'Content-Disposition': `attachment; filename="personal-brand-video-${Date.now()}.mp4"`,
-        'Cache-Control': 'no-store'
+        'Content-Length': String(finalBuffer.length),
+        'Content-Disposition': `attachment; filename="${fileName}"`,
+        'X-Video-File-Name': fileName,
+        'X-Video-Output-Id': outputId,
+        'X-Video-Download-Url': `/api/outputs/${outputId}/download`,
+        'Cache-Control': 'private, no-store'
       }
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : 'Không thể ghép video.', 500);
+    if (outputId) {
+      await failVideoOutput(
+        outputId,
+        error instanceof Error ? error.message : 'Ghép video thất bại.'
+      ).catch(() => undefined);
+    }
+    if (error instanceof Error && error.name === 'AuthenticationError') {
+      return authenticationErrorResponse(error);
+    }
+    return NextResponse.json(
+      { ok: false, message: error instanceof Error ? error.message : 'Không ghép được video.' },
+      { status: 500 }
+    );
   } finally {
-    await rm(workspace, { recursive: true, force: true });
+    if (workDir) await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

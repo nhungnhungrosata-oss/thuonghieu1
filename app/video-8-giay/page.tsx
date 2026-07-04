@@ -6,6 +6,8 @@ type GenerateResponse = {
   ok: boolean;
   jobId?: string;
   mediaGenerationId?: string;
+  generationId?: string;
+  recoveryToken?: string;
   message?: string;
   raw?: unknown;
 };
@@ -46,7 +48,7 @@ export default function HomePage() {
   const [image, setImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [script, setScript] = useState(defaultScript);
-  const [model, setModel] = useState('veo-3.1-lite');
+  const [model, setModel] = useState('veo-3.1-lite-low-priority');
   const [submitting, setSubmitting] = useState(false);
   const [jobId, setJobId] = useState('');
   const [status, setStatus] = useState('Chưa tạo');
@@ -73,11 +75,15 @@ export default function HomePage() {
     };
   }, []);
 
-  async function pollJob(id: string) {
-    const res = await fetch(`/api/job?jobId=${encodeURIComponent(id)}`, { cache: 'no-store' });
+  async function pollJob(id: string, generationId: string, recoveryToken = '') {
+    const query = new URLSearchParams({ jobId: id });
+    if (generationId) query.set('generationId', generationId);
+    if (recoveryToken) query.set('recoveryToken', recoveryToken);
+    const res = await fetch(`/api/job?${query.toString()}`, { cache: 'no-store' });
     const data = await readResponse<JobResponse>(res);
     setRaw(data.raw ?? data);
 
+    if (res.status === 401) { window.location.assign('/login'); return; }
     if (!res.ok || !data.ok) {
       setError(data.error || 'Không kiểm tra được trạng thái job.');
       setStatus('Lỗi');
@@ -101,10 +107,10 @@ export default function HomePage() {
     }
   }
 
-  async function startPolling(id: string) {
+  async function startPolling(id: string, generationId: string, recoveryToken = '') {
     if (pollingRef.current) window.clearInterval(pollingRef.current);
-    await pollJob(id);
-    pollingRef.current = window.setInterval(() => pollJob(id), 5000);
+    await pollJob(id, generationId, recoveryToken);
+    pollingRef.current = window.setInterval(() => pollJob(id, generationId, recoveryToken), 5000);
   }
 
   function handleImageChange(file: File | null) {
@@ -137,6 +143,7 @@ export default function HomePage() {
       formData.append('image', image);
       formData.append('script', script);
       formData.append('model', model);
+      formData.append('aspectRatio', '9:16');
 
       const res = await fetch('/api/generate', {
         method: 'POST',
@@ -146,13 +153,14 @@ export default function HomePage() {
       const data = await readResponse<GenerateResponse>(res);
       setRaw(data.raw ?? data);
 
+      if (res.status === 401) { window.location.assign('/login'); throw new Error('Phiên đăng nhập đã hết hạn.'); }
       if (!res.ok || !data.ok || !data.jobId) {
         throw new Error(data.message || 'Không tạo được job video.');
       }
 
       setJobId(data.jobId);
       setStatus('Đã gửi job, đang tạo video...');
-      await startPolling(data.jobId);
+      await startPolling(data.jobId, data.generationId || '', data.recoveryToken || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi không xác định.');
       setStatus('Lỗi');
@@ -207,11 +215,12 @@ export default function HomePage() {
             <div className="field">
               <label htmlFor="model">Model</label>
               <select id="model" value={model} onChange={(event) => setModel(event.target.value)}>
+                <option value="veo-3.1-lite-low-priority">Veo 3.1 - lite [Lower Priority]</option>
                 <option value="veo-3.1-lite">veo-3.1-lite</option>
                 <option value="veo-3.1-fast">veo-3.1-fast</option>
                 <option value="veo-3.1-quality">veo-3.1-quality</option>
               </select>
-              <div className="helper">Mặc định dùng Veo 3.1 Lite để tiết kiệm credit và phù hợp tài khoản freemium hơn.</div>
+              <div className="helper">Mặc định dùng Veo 3.1 - lite [Lower Priority] để tối ưu chi phí và tải hệ thống.</div>
             </div>
 
             <div className="field">

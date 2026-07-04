@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { assertSameOrigin, authenticationErrorResponse, requireApiUser } from '../../../../lib/saas/auth';
 import {
   SCENE_DURATION_SECONDS,
   isSceneCount,
@@ -23,20 +24,19 @@ const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const REQUEST_TIMEOUT_MS = 45_000;
 const MAX_INPUT_LENGTH = 12_000;
 const MAX_SUMMARY_LENGTH = 2_000;
-const MIN_VOICEOVER_WORDS = 24;
+const MIN_VOICEOVER_WORDS = 25;
 const MAX_VOICEOVER_WORDS = 28;
-// Ngưỡng chấp nhận thực tế khi kiểm tra (không kích hoạt tự tạo lại) nếu hụt nhẹ dưới mức tối thiểu,
-// để tránh tốn thêm lượt gọi DeepSeek chỉ vì thiếu vài từ. Giới hạn tối đa vẫn là quy định CỨNG, không nới.
-const MIN_ACCEPTABLE_WORDS = MIN_VOICEOVER_WORDS - 4;
+// Ngưỡng chấp nhận thực tế khi kiểm tra: chỉ nới 2 từ so với mức tối thiểu (không phải 4)
+// để tránh việc AI "chạm đáy" 20 từ vẫn được coi là đạt. Giới hạn tối đa vẫn là quy định CỨNG, không nới.
+const MIN_ACCEPTABLE_WORDS = MIN_VOICEOVER_WORDS - 2;
 
-const SYSTEM_PROMPT = `Bạn là biên kịch video ngắn tại Việt Nam.
-Mỗi cảnh dài đúng 8 giây. Quy định về độ dài voiceover:
-- GIỚI HẠN CỨNG, TUYỆT ĐỐI KHÔNG ĐƯỢC VI PHẠM: mỗi voiceover không được vượt quá ${MAX_VOICEOVER_WORDS} từ tiếng Việt trong bất kỳ trường hợp nào.
-- Mục tiêu: mỗi voiceover nên đạt tối thiểu ${MIN_VOICEOVER_WORDS} từ. Nếu hụt vài từ so với mức tối thiểu này thì vẫn chấp nhận được, không sao cả — ưu tiên câu văn tự nhiên, không gượng ép thêm từ cho đủ số lượng.
-Hãy tự đếm số từ của từng voiceover trước khi trả kết quả; nếu voiceover nào vượt quá ${MAX_VOICEOVER_WORDS} từ thì bắt buộc phải viết lại ngắn gọn hơn ngay trước khi trả JSON.
-Các cảnh phải nối tiếp thành một bài nói duy nhất: cảnh đầu tạo hook, cảnh giữa phát triển ý, cảnh cuối chốt thông điệp hoặc CTA.
-Từ cảnh 2 không chào lại, không tạo hook mới, không lặp ý và không viết như video độc lập.
-Giữ nguyên nhân vật, khuôn mặt, trang phục, bối cảnh, cách xưng hô và phong cách trong toàn bộ video.
+const SYSTEM_PROMPT = `Bạn là biên kịch video ngắn với hơn 20 năm kinh nghiệm sản xuất nội dung viral cho TikTok, Reels và YouTube Shorts tại Việt Nam. Bạn có tai nghe nhạy với nhịp đọc của giọng nói tiếng Việt và biết chính xác một câu thoại cần dài bao nhiêu để vừa khít với hình ảnh, không bị hụt hơi cũng không bị cắt ngang.
+
+Mỗi cảnh trong video có thời lượng cố định 25 đến 28 từ. Trước khi viết voiceover cho một cảnh, hãy tưởng tượng bạn đang đọc to đoạn đó với tốc độ dẫn chuyện tự nhiên (không đọc vội, không kéo dài), và ước lượng xem nó có vừa khít khoảng 25 đến 28 từ hay không. Với tốc độ đó, một câu thoại tiếng Việt vừa hoảng 25 đến 28 từ thường rơi vào khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ — đây là cảm nhận về nhịp đọc thực tế, không phải một con số cần đếm máy móc. Nếu phân vân giữa viết ngắn hay dài, hãy nghiêng về phía dài hơn trong khoảng đó (gần ${MAX_VOICEOVER_WORDS} từ) thay vì chỉ chạm mức tối thiểu — 8 giây là khoảng thời gian khá đủ để diễn đạt trọn vẹn một ý, đừng bỏ phí. Hãy để câu văn tự nhiên, có cảm xúc và đúng văn phong dẫn dắt trước, sau đó tinh chỉnh độ dài sao cho vừa vặn nhịp đọc đó.
+
+Các cảnh phải nối tiếp thành một bài nói duy nhất: cảnh đầu tạo hook cuốn người xem trong vài giây đầu, các cảnh giữa phát triển ý mạch lạc, cảnh cuối chốt thông điệp hoặc lời kêu gọi hành động.
+Từ cảnh 2 trở đi không chào lại, không tạo hook mới, không lặp ý và không viết như một video độc lập — người xem phải cảm nhận đây là một mạch nói liền mạch từ đầu đến cuối.
+Giữ nguyên nhân vật, khuôn mặt, trang phục, bối cảnh, cách xưng hô và phong cách xuyên suốt toàn bộ video.
 Mọi videoPrompt phải ghi rõ không chữ, không logo, không watermark và không phụ đề render sẵn.
 Chỉ trả JSON hợp lệ đúng schema, không thêm markdown hay giải thích.`;
 
@@ -203,9 +203,7 @@ Số cảnh: ${sceneCount}. Mỗi cảnh: 8 giây. Tổng thời lượng: ${tot
 Giọng: ${region}. Biểu cảm: ${emotion}. Tỷ lệ: ${aspectRatio}.
 
 QUY TẮC BẮT BUỘC:
-- GIỚI HẠN CỨNG: mỗi voiceover TUYỆT ĐỐI không được vượt quá ${MAX_VOICEOVER_WORDS} từ tiếng Việt.
-- Mục tiêu: mỗi voiceover nên đạt tối thiểu khoảng ${MIN_VOICEOVER_WORDS} từ, nhưng nếu hụt vài từ vẫn được, không cần thêm từ gượng ép.
-- Tự đếm từng voiceover trước khi trả JSON; nếu vượt ${MAX_VOICEOVER_WORDS} từ thì bắt buộc rút gọn lại.
+- Mỗi voiceover cần vừa khít 8 giây khi đọc với tốc độ dẫn chuyện tự nhiên — tương đương khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ tiếng Việt. Nếu phân vân, hãy nghiêng về phía ${MAX_VOICEOVER_WORDS} từ hơn là chỉ chạm mức ${MIN_VOICEOVER_WORDS} từ. Hãy cảm nhận nhịp đọc thực tế thay vì đếm từ một cách máy móc, và ưu tiên câu văn tự nhiên, đúng cảm xúc.
 - Các cảnh nối liền thành một bài nói duy nhất; không chào lại, không lặp ý.
 - Giữ nguyên nhân vật, trang phục và bối cảnh. Không chữ, logo, watermark hoặc phụ đề.
 
@@ -226,7 +224,7 @@ Chỉ trả JSON theo schema:
     "characterAction": "Hành động",
     "facialExpression": "Biểu cảm",
     "camera": "Góc máy",
-    "voiceover": "Lời thoại ${MIN_VOICEOVER_WORDS}–${MAX_VOICEOVER_WORDS} từ",
+    "voiceover": "Lời thoại vừa khít 8 giây đọc tự nhiên, khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ",
     "videoPrompt": "Prompt tạo video"
   }]
 }
@@ -245,12 +243,20 @@ function buildRewriteScenePrompt(
 Tóm tắt: ${summary}
 Cảnh hiện tại: ${JSON.stringify(scene)}
 Giọng: ${region}. Biểu cảm: ${emotion}. Tỷ lệ: ${aspectRatio}.
-Voiceover TUYỆT ĐỐI không được vượt quá ${MAX_VOICEOVER_WORDS} từ tiếng Việt (giới hạn cứng); nên đạt tối thiểu khoảng ${MIN_VOICEOVER_WORDS} từ nhưng hụt vài từ vẫn chấp nhận được. Hãy tự đếm trước khi trả kết quả.
+Voiceover cần vừa khít 8 giây khi đọc với tốc độ tự nhiên — tương đương khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ tiếng Việt. Hãy cảm nhận nhịp đọc thực tế trước khi chốt câu chữ, ưu tiên tự nhiên hơn là đếm từ máy móc.
 Giữ nguyên sceneNumber, duration = 8, nhân vật, trang phục và bối cảnh. Không chữ, logo, watermark hoặc phụ đề.
-Chỉ trả JSON: {"scene":{"sceneNumber":${scene.sceneNumber},"duration":8,"objective":"...","visualDescription":"...","characterAction":"...","facialExpression":"...","camera":"...","voiceover":"${MIN_VOICEOVER_WORDS}–${MAX_VOICEOVER_WORDS} từ","videoPrompt":"..."}}`;
+Chỉ trả JSON: {"scene":{"sceneNumber":${scene.sceneNumber},"duration":8,"objective":"...","visualDescription":"...","characterAction":"...","facialExpression":"...","camera":"...","voiceover":"khoảng ${MIN_VOICEOVER_WORDS}-${MAX_VOICEOVER_WORDS} từ, vừa khít 8 giây","videoPrompt":"..."}}`;
 }
 
 export async function POST(request: NextRequest) {
+  try {
+    assertSameOrigin(request);
+    await requireApiUser(request);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AuthenticationError') return authenticationErrorResponse(error);
+    return jsonError(error instanceof Error ? error.message : 'Nguồn yêu cầu không hợp lệ.', 403);
+  }
+
   let body: Record<string, unknown>;
   try {
     const parsed = await request.json();

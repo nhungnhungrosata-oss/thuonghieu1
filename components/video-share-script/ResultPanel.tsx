@@ -38,9 +38,14 @@ type Props = {
   onDownloadFinal: () => void;
 };
 
+function sanitizeUserMessage(value: string) {
+  return value.replace(/DeepSeek\s*/gi, '').trim();
+}
+
 export default function ResultPanel(props: Props) {
   const script = props.scriptResult;
   const progressPercent = props.sceneCount ? Math.round((props.completedVideos / props.sceneCount) * 100) : 0;
+  const statusMessage = sanitizeUserMessage(props.error || props.notice);
 
   return (
     <section className={styles.resultPanel}>
@@ -85,7 +90,7 @@ export default function ResultPanel(props: Props) {
 
       {(props.error || props.notice) && (
         <div className={props.error ? styles.errorMessage : styles.noticeMessage} role="status" aria-live="polite">
-          {props.error || props.notice}
+          {statusMessage}
         </div>
       )}
 
@@ -93,7 +98,7 @@ export default function ResultPanel(props: Props) {
         <div className={styles.emptyState}>
           <div className={styles.emptyIcon}>✦</div>
           <h3>Sẵn sàng xây dựng kịch bản</h3>
-          <p>Chọn ảnh, nhập chủ đề và thiết lập phong cách ở cột bên trái. DeepSeek sẽ tạo một kịch bản liền mạch từ 2 đến 6 cảnh.</p>
+          <p>Chọn ảnh, nhập chủ đề và thiết lập phong cách ở cột bên trái. Hệ thống sẽ tạo một kịch bản liền mạch từ 2 đến 6 cảnh.</p>
           <div className={styles.emptyChecklist}>
             <span>Hook thu hút</span>
             <span>Lời thoại vừa 8 giây</span>
@@ -203,9 +208,6 @@ export default function ResultPanel(props: Props) {
           {script.scenes.length !== props.sceneCount && (
             <p className={styles.validationHint}>Số cảnh hiện tại chưa khớp thời lượng. Hãy phân cảnh lại.</p>
           )}
-          <p className={styles.pipelineNote}>
-            Mỗi cảnh vẫn dùng đúng <code>POST /api/generate</code>, <code>GET /api/job</code> và ba trường <code>image</code>, <code>script</code>, <code>model</code>. Hai API cũ không bị thay đổi.
-          </p>
         </>
       )}
     </section>
