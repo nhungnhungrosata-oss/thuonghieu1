@@ -14,6 +14,11 @@ export type StoredGeneration = {
   status: string;
   provider_status: string | null;
   provider_job_id: string | null;
+  provider_asset_id?: string | null;
+  output_url?: string | null;
+  storage_status?: string | null;
+  storage_bucket?: string | null;
+  storage_path?: string | null;
   cost_credits: number;
 };
 
@@ -100,7 +105,7 @@ export async function markGenerationSubmitted(input: {
 
 export async function getGenerationForUser(userId: string, providerJobId: string): Promise<StoredGeneration | null> {
   const query = new URLSearchParams({
-    select: 'id,user_id,status,provider_status,provider_job_id,cost_credits',
+    select: '*',
     user_id: `eq.${userId}`,
     provider_job_id: `eq.${providerJobId}`,
     limit: '1'
@@ -119,6 +124,7 @@ export async function markGenerationProcessing(generationId: string, providerSta
       status: 'processing',
       provider_status: providerStatus,
       started_at: new Date().toISOString(),
+      reconcile_locked_until: null,
       updated_at: new Date().toISOString()
     })
   });
@@ -139,7 +145,9 @@ export async function markGenerationSucceeded(input: {
       provider_status: input.providerStatus,
       output_url: input.videoUrl,
       provider_asset_id: input.providerAssetId || null,
+      storage_status: 'pending',
       completed_at: new Date().toISOString(),
+      reconcile_locked_until: null,
       updated_at: new Date().toISOString()
     })
   });
