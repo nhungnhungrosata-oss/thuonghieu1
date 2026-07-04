@@ -1,5 +1,12 @@
+import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { isVideoEmotion, isVideoRegion, type VideoEmotion, type VideoRegion } from '../../../lib/video-script';
+import { authenticationErrorResponse, requireApiUser } from '../../../lib/saas/auth';
+import {
+  failAndRefundGeneration,
+  markGenerationSubmitted,
+  reserveVideoGeneration
+} from '../../../lib/saas/database';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,32 +15,34 @@ export const maxDuration = 300;
 const USEAPI_ROOT = 'https://api.useapi.net/v1/google-flow';
 const MAX_IMAGE_SIZE = 4 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const REQUEST_TIMEOUT_MS = 90_000;
+const IDEMPOTENCY_WINDOW_MS = 15 * 60 * 1000;
 
 type FlowAspectRatio = 'portrait' | 'landscape';
 
-function jsonError(message: string, status = 400, raw?: unknown) {
-  return NextResponse.json({ ok: false, message, raw }, { status });
+function jsonError(message: string, status = 400, retryAfter?: number) {
+  const response = NextResponse.json({ ok: false, message, retryAfter }, { status });
+  if (retryAfter) response.headers.set('Retry-After', String(retryAfter));
+  return response;
 }
 
 function getEnv() {
   const token = process.env.USEAPI_TOKEN?.trim();
   const email = process.env.USEAPI_EMAIL?.trim();
-
-  if (!token) {
-    throw new Error('Thiếu USEAPI_TOKEN trong Environment Variables.');
-  }
-
+  if (!token) throw new Error('Thiếu USEAPI_TOKEN trong Environment Variables.');
   return { token, email };
 }
 
-function extractMediaGenerationId(uploadResult: Record<string, any>) {
+function extractMediaGenerationId(uploadResult: Record<string, unknown>) {
   const value = uploadResult?.mediaGenerationId;
   if (typeof value === 'string') return value;
-  if (typeof value?.mediaGenerationId === 'string') return value.mediaGenerationId;
+  if (value && typeof value === 'object' && typeof (value as Record<string, unknown>).mediaGenerationId === 'string') {
+    return String((value as Record<string, unknown>).mediaGenerationId);
+  }
   return '';
 }
 
-function extractJobId(videoResult: Record<string, any>) {
+function extractJobId(videoResult: Record<string, unknown>) {
   if (typeof videoResult?.jobid === 'string') return videoResult.jobid;
   if (typeof videoResult?.jobId === 'string') return videoResult.jobId;
   return '';
@@ -41,7 +50,6 @@ function extractJobId(videoResult: Record<string, any>) {
 
 function resolveFlowAspectRatio(formValue: FormDataEntryValue | null, script: string): FlowAspectRatio {
   const requested = typeof formValue === 'string' ? formValue.trim().toLowerCase() : '';
-
   if (requested === '16:9' || requested === 'landscape') return 'landscape';
   if (requested === '9:16' || requested === 'portrait') return 'portrait';
 
@@ -50,9 +58,7 @@ function resolveFlowAspectRatio(formValue: FormDataEntryValue | null, script: st
     normalizedScript.includes('tỷ lệ bố cục mong muốn: 16:9') ||
     normalizedScript.includes('tỷ lệ 16:9') ||
     normalizedScript.includes('khung hình 16:9')
-  ) {
-    return 'landscape';
-  }
+  ) return 'landscape';
 
   return 'portrait';
 }
@@ -100,8 +106,39 @@ function buildVideoPrompt(
   ].filter(Boolean).join(' ');
 }
 
-export async function POST(request: NextRequest) {
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    return await fetch(url, { ...init, signal: controller.signal, cache: 'no-store' });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { message: text || `HTTP ${response.status}` };
+  }
+}
+
+function reservationError(reason: string) {
+  if (reason === 'no_credits') return jsonError('Bạn đã hết credit tạo video. Vui lòng nâng gói hoặc nạp thêm credit.', 402);
+  if (reason === 'user_busy') return jsonError('Tài khoản đang có quá nhiều cảnh xử lý cùng lúc. Hãy chờ cảnh hiện tại hoàn thành.', 429, 20);
+  if (reason === 'hourly_limit') return jsonError('Bạn đã đạt giới hạn tạo cảnh trong giờ này. Vui lòng thử lại sau.', 429, 300);
+  if (reason === 'system_busy') return jsonError('Hệ thống đang có nhiều video xử lý. Vui lòng thử lại sau ít phút.', 429, 30);
+  return jsonError('Không thể giữ lượt tạo video lúc này.', 503, 15);
+}
+
+export async function POST(request: NextRequest) {
+  let reservationId = '';
+  let providerJobCreated = false;
+
+  try {
+    const { user, accessToken } = await requireApiUser(request);
     const { token, email } = getEnv();
     const formData = await request.formData();
 
@@ -115,28 +152,50 @@ export async function POST(request: NextRequest) {
     const region = readVideoRegion(formData.get('region'));
     const emotion = readVideoEmotion(formData.get('emotion'));
 
-    if (!image || typeof image === 'string') {
-      return jsonError('Vui lòng upload 1 ảnh nhân vật.');
-    }
+    if (!image || typeof image === 'string') return jsonError('Vui lòng upload 1 ảnh nhân vật.');
+    if (!ALLOWED_IMAGE_TYPES.has(image.type)) return jsonError('Ảnh phải là PNG, JPG hoặc WEBP.');
+    if (image.size > MAX_IMAGE_SIZE) return jsonError('Ảnh vượt quá 4MB. Vui lòng nén ảnh nhẹ hơn rồi thử lại.');
+    if (!script) return jsonError('Vui lòng nhập nội dung/lời thoại.');
 
-    if (!ALLOWED_IMAGE_TYPES.has(image.type)) {
-      return jsonError('Ảnh phải là PNG, JPG hoặc WEBP.');
-    }
+    const imageBuffer = Buffer.from(await image.arrayBuffer());
+    const timeBucket = Math.floor(Date.now() / IDEMPOTENCY_WINDOW_MS);
+    const idempotencyKey = createHash('sha256')
+      .update(user.id)
+      .update(script)
+      .update(model)
+      .update(aspectRatio)
+      .update(String(timeBucket))
+      .update(imageBuffer)
+      .digest('hex');
 
-    if (image.size > MAX_IMAGE_SIZE) {
-      return jsonError('Ảnh vượt quá 4MB. Vui lòng nén ảnh nhẹ hơn rồi thử lại.');
-    }
+    const reservation = await reserveVideoGeneration({
+      accessToken,
+      idempotencyKey,
+      prompt: script,
+      model,
+      costCredits: 1
+    });
 
-    if (!script) {
-      return jsonError('Vui lòng nhập nội dung/lời thoại.');
+    if (!reservation.allowed) return reservationError(reservation.reason);
+    reservationId = reservation.generationId;
+
+    if (reservation.reused) {
+      if (reservation.providerJobId) {
+        return NextResponse.json({
+          ok: true,
+          jobId: reservation.providerJobId,
+          generationId: reservation.generationId,
+          reused: true
+        });
+      }
+      return jsonError('Yêu cầu giống hệt đang được gửi. Vui lòng chờ vài giây rồi thử lại.', 409, 5);
     }
 
     const uploadUrl = email
       ? `${USEAPI_ROOT}/assets/${encodeURIComponent(email)}`
       : `${USEAPI_ROOT}/assets`;
 
-    const imageBuffer = Buffer.from(await image.arrayBuffer());
-    const uploadResponse = await fetch(uploadUrl, {
+    const uploadResponse = await fetchWithTimeout(uploadUrl, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -144,22 +203,20 @@ export async function POST(request: NextRequest) {
       },
       body: imageBuffer
     });
-
-    const uploadText = await uploadResponse.text();
-    let uploadResult: any;
-    try {
-      uploadResult = JSON.parse(uploadText);
-    } catch {
-      uploadResult = { rawText: uploadText };
-    }
+    const uploadResult = await readJsonResponse(uploadResponse);
 
     if (!uploadResponse.ok) {
-      return jsonError(`Upload ảnh lỗi HTTP ${uploadResponse.status}.`, uploadResponse.status, uploadResult);
+      const message = `Upload ảnh lỗi HTTP ${uploadResponse.status}.`;
+      await failAndRefundGeneration(reservationId, message);
+      reservationId = '';
+      return jsonError(message, uploadResponse.status === 429 ? 429 : 502, uploadResponse.status === 429 ? 30 : undefined);
     }
 
     const mediaGenerationId = extractMediaGenerationId(uploadResult);
     if (!mediaGenerationId) {
-      return jsonError('Upload ảnh thành công nhưng không lấy được mediaGenerationId.', 502, uploadResult);
+      await failAndRefundGeneration(reservationId, 'Upload ảnh thành công nhưng thiếu mediaGenerationId.');
+      reservationId = '';
+      return jsonError('Upload ảnh thành công nhưng không lấy được mediaGenerationId.', 502);
     }
 
     const videoPayload: Record<string, unknown> = {
@@ -174,7 +231,7 @@ export async function POST(request: NextRequest) {
       captchaRetry: 5
     };
 
-    const videoResponse = await fetch(`${USEAPI_ROOT}/videos`, {
+    const videoResponse = await fetchWithTimeout(`${USEAPI_ROOT}/videos`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -182,34 +239,65 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify(videoPayload)
     });
-
-    const videoText = await videoResponse.text();
-    let videoResult: any;
-    try {
-      videoResult = JSON.parse(videoText);
-    } catch {
-      videoResult = { rawText: videoText };
-    }
+    const videoResult = await readJsonResponse(videoResponse);
 
     if (!videoResponse.ok) {
-      return jsonError(`Tạo video lỗi HTTP ${videoResponse.status}.`, videoResponse.status, videoResult);
+      const message = videoResponse.status === 429
+        ? 'Google Flow đang quá tải hoặc chưa có tài khoản đủ điều kiện.'
+        : `Tạo video lỗi HTTP ${videoResponse.status}.`;
+      await failAndRefundGeneration(reservationId, message);
+      reservationId = '';
+      return jsonError(message, videoResponse.status === 429 ? 429 : 502, videoResponse.status === 429 ? 30 : undefined);
     }
 
     const jobId = extractJobId(videoResult);
     if (!jobId) {
-      return jsonError('UseAPI đã phản hồi nhưng không thấy jobId/jobid.', 502, videoResult);
+      await failAndRefundGeneration(reservationId, 'Provider phản hồi nhưng không có jobId.');
+      reservationId = '';
+      return jsonError('UseAPI đã phản hồi nhưng không thấy jobId/jobid.', 502);
     }
+
+    providerJobCreated = true;
+    let lastDatabaseError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await markGenerationSubmitted({
+          generationId: reservationId,
+          providerJobId: jobId,
+          providerAssetId: mediaGenerationId
+        });
+        lastDatabaseError = undefined;
+        break;
+      } catch (error) {
+        lastDatabaseError = error;
+        await new Promise((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+      }
+    }
+    if (lastDatabaseError) throw lastDatabaseError;
 
     return NextResponse.json({
       ok: true,
       jobId,
+      generationId: reservationId,
       mediaGenerationId,
       aspectRatio,
       region: region || undefined,
-      emotion: emotion || undefined,
-      raw: videoResult
+      emotion: emotion || undefined
     });
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : 'Lỗi server không xác định.', 500);
+    if (error instanceof Error && error.name === 'AuthenticationError') {
+      return authenticationErrorResponse(error);
+    }
+
+    const message = error instanceof Error && error.name === 'AbortError'
+      ? 'Kết nối dịch vụ tạo video quá thời gian.'
+      : error instanceof Error
+        ? error.message
+        : 'Lỗi server không xác định.';
+
+    if (reservationId && !providerJobCreated) {
+      await failAndRefundGeneration(reservationId, message).catch(() => undefined);
+    }
+    return jsonError(message, 500);
   }
 }
