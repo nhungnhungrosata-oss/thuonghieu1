@@ -23,7 +23,7 @@ Hai endpoint cũ vẫn giữ nguyên URL và kiểu phản hồi cần thiết c
 - Credit tự hoàn khi upload hoặc tạo video thất bại.
 - Chống bấm tạo trùng trong cửa sổ 15 phút bằng idempotency hash.
 - Giới hạn số cảnh đồng thời theo từng gói.
-- Giới hạn số cảnh theo giờ.
+- Giới hạn số cảnh theo giờ và giới hạn riêng cho API viết kịch bản/ghép video.
 - Giới hạn tải đồng thời toàn hệ thống.
 - Trang `/account` hiển thị credit, gói, giới hạn và 20 lượt tạo gần nhất.
 - API token Google Flow, DeepSeek và Supabase service role chỉ tồn tại ở backend.
@@ -32,22 +32,25 @@ Hai endpoint cũ vẫn giữ nguyên URL và kiểu phản hồi cần thiết c
 
 1. Tạo một project Supabase.
 2. Mở **SQL Editor**.
-3. Chạy toàn bộ file:
+3. Chạy hai file dưới đây theo đúng thứ tự:
 
 ```text
 supabase/migrations/20260704_saas_foundation.sql
+supabase/migrations/20260704_api_quota.sql
 ```
 
-Migration tạo:
+Các migration tạo:
 
 - `profiles`: gói, credit và giới hạn của từng user.
 - `generations`: lịch sử, trạng thái và quyền sở hữu job.
 - `saas_settings`: giới hạn đồng thời toàn hệ thống.
+- `api_usage_events`: giới hạn các API có chi phí cao.
 - RPC `reserve_video_generation`: giữ slot và trừ credit nguyên tử.
 - RPC `fail_and_refund_generation`: đánh dấu lỗi và hoàn credit đúng một lần.
+- RPC `consume_api_quota`: rate limit theo user và loại thao tác.
 - Row Level Security để user chỉ đọc dữ liệu của chính mình.
 
-Trong Supabase Auth, bật Email/Password. Có thể bật xác nhận email; route `/auth/confirm` đã được chuẩn bị để nhận liên kết xác nhận.
+Trong Supabase Auth, bật Email/Password. Có thể bật xác nhận email; trang `/auth/confirm` nhận token xác nhận từ trình duyệt và đổi sang cookie `HttpOnly`.
 
 ## Biến môi trường
 
@@ -137,13 +140,22 @@ API ghép video sử dụng `ffmpeg-static` phía server. Các lifecycle script 
 
 Khi redeploy trên Vercel và gặp `spawn ... ffmpeg ENOENT`, chọn Redeploy và bỏ chọn dùng lại Build Cache.
 
+## Việc còn phải làm trước khi thu tiền thật
+
+- Tích hợp cổng thanh toán và webhook cộng credit theo giao dịch đã xác minh.
+- Tải video hoàn thành về S3, Cloudflare R2 hoặc Supabase Storage. Hiện lịch sử đang lưu URL kết quả của provider; URL này không nên được coi là kho lưu trữ lâu dài.
+- Có cron hoặc worker xử lý các reservation bị treo lâu bất thường và cảnh báo vận hành.
+- Thiết lập điều khoản sử dụng, chính sách riêng tư, hỗ trợ hoàn tiền và kiểm duyệt nội dung.
+
 ## Kiểm tra trước khi mở bán
 
-- Chạy migration Supabase thành công.
+- Chạy đủ hai migration Supabase thành công.
 - Đăng ký được hai tài khoản khác nhau.
 - Tài khoản A không thể polling `jobId` của tài khoản B.
 - Credit giảm đúng số cảnh và được hoàn khi provider trả lỗi.
+- Rate limit hoạt động với DeepSeek và API ghép video.
 - Không có khóa bí mật nào dùng tiền tố `NEXT_PUBLIC_`.
 - Đã thêm nhiều tài khoản Flow nếu dự kiến nhiều job đồng thời.
 - Đã cấu hình captcha provider dự phòng.
+- Đã cấu hình lưu trữ video dài hạn trước khi bán gói trả phí.
 - Đã thiết lập điều khoản sử dụng, chính sách riêng tư và quy trình hỗ trợ khách hàng.
