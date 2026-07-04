@@ -1,7 +1,7 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { FormEvent, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import styles from './page.module.css';
 
 type AuthResponse = {
@@ -12,11 +12,19 @@ type AuthResponse = {
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(searchParams.get('notice') || '');
-  const [error, setError] = useState(searchParams.get('error') || '');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [nextPath, setNextPath] = useState('/');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get('next');
+    setNextPath(next?.startsWith('/') ? next : '/');
+    setMessage(params.get('notice') || '');
+    setError(params.get('error') || '');
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,8 +56,7 @@ export default function LoginPage() {
       return;
     }
 
-    const next = searchParams.get('next');
-    router.replace(next?.startsWith('/') ? next : '/');
+    router.replace(nextPath);
     router.refresh();
   }
 
