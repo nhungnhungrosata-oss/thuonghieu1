@@ -1,11 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  outputFileTracingExcludes: { '*': ['./node_modules/**/*'] },
-  ...(process.env.SKIP_FFMPEG_TRACE === '1' ? {} : {
-    outputFileTracingIncludes: {
-      '/api/video/merge': ['./.ffmpeg/**/*']
-    }
-  }),
+  ...(process.env.SKIP_FFMPEG_TRACE === '1'
+    ? {}
+    : {
+        outputFileTracingIncludes: {
+          '/api/video/merge': ['./.ffmpeg/**/*']
+        }
+      }),
   experimental: {
     serverActions: {
       bodySizeLimit: '5mb'
