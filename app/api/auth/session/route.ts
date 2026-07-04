@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   ACCESS_TOKEN_COOKIE,
-  AuthSession,
   clearAuthCookies,
-  setAuthCookies
+  setAuthCookies,
+  type AuthSession
 } from '../../../../lib/saas/auth';
 import { getSupabaseConfig } from '../../../../lib/saas/config';
 
@@ -24,18 +24,21 @@ async function readAuthError(response: Response) {
   }
 }
 
-function normalizeCredentials(input: unknown) {
+function normalizeInput(input: unknown) {
   const value = input && typeof input === 'object' ? input as Record<string, unknown> : {};
   return {
     action: String(value.action || '').trim(),
     email: String(value.email || '').trim().toLowerCase(),
-    password: String(value.password || '')
+    password: String(value.password || ''),
+    accessToken: String(value.accessToken || ''),
+    refreshToken: String(value.refreshToken || ''),
+    expiresIn: Number(value.expiresIn || 3600)
   };
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = normalizeCredentials(await request.json().catch(() => ({})));
+    const body = normalizeInput(await request.json().catch(() => ({})));
     const { url, anonKey } = getSupabaseConfig();
 
     if (body.action === 'logout') {
@@ -52,6 +55,30 @@ export async function POST(request: NextRequest) {
       }
       const response = NextResponse.json({ ok: true });
       clearAuthCookies(response);
+      return response;
+    }
+
+    if (body.action === 'adopt-session') {
+      if (!body.accessToken || !body.refreshToken) return jsonError('Phiên xác nhận email không hợp lệ.', 401);
+      const userResponse = await fetch(`${url}/auth/v1/user`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${body.accessToken}`
+        },
+        cache: 'no-store'
+      });
+      if (!userResponse.ok) return jsonError('Phiên xác nhận email đã hết hạn.', 401);
+      const user = await userResponse.json() as { id?: string; email?: string };
+      if (!user.id || !user.email) return jsonError('Không đọc được tài khoản vừa xác nhận.', 401);
+
+      const session: AuthSession = {
+        access_token: body.accessToken,
+        refresh_token: body.refreshToken,
+        expires_in: Math.max(60, body.expiresIn),
+        user
+      };
+      const response = NextResponse.json({ ok: true, email: user.email });
+      setAuthCookies(response, session);
       return response;
     }
 
