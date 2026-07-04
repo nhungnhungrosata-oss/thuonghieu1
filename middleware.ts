@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
-  AuthSession,
-  AuthUser,
   fetchAuthUser,
   refreshAuthSession,
-  setAuthCookies
+  setAuthCookies,
+  type AuthSession,
+  type AuthUser
 } from './lib/saas/auth';
 import { getSupabaseConfig } from './lib/saas/config';
 
