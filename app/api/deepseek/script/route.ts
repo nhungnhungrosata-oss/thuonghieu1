@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { assertSameOrigin, authenticationErrorResponse, requireApiUser } from '../../../../lib/saas/auth';
 import {
   SCENE_DURATION_SECONDS,
   isSceneCount,
@@ -248,6 +249,14 @@ Chỉ trả JSON: {"scene":{"sceneNumber":${scene.sceneNumber},"duration":8,"obj
 }
 
 export async function POST(request: NextRequest) {
+  try {
+    assertSameOrigin(request);
+    await requireApiUser(request);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AuthenticationError') return authenticationErrorResponse(error);
+    return jsonError(error instanceof Error ? error.message : 'Nguồn yêu cầu không hợp lệ.', 403);
+  }
+
   let body: Record<string, unknown>;
   try {
     const parsed = await request.json();
