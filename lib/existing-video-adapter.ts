@@ -3,7 +3,7 @@ import type { VideoScript } from './video-script';
 export type ExistingVideoScenePayload = {
   sceneNumber: number;
   duration: 8;
-  model: 'veo-3.1-lite';
+  model: 'veo-3.1-lite-low-priority';
   script: string;
 };
 
@@ -68,7 +68,7 @@ export function mapScriptScenesToExistingVideoPayload(script: VideoScript): Exis
   return script.scenes.map((scene) => ({
     sceneNumber: scene.sceneNumber,
     duration: 8,
-    model: 'veo-3.1-lite',
+    model: 'veo-3.1-lite-low-priority',
     script: [
       `Scene ${scene.sceneNumber} of ${script.scenes.length}. Exact duration: 8 seconds.`,
       referencePrompt,

@@ -36,8 +36,8 @@ const OUTPUT_FRAME_SIZE: Record<VideoAspectRatio, { width: number; height: numbe
 };
 
 type ScriptApiResponse = { ok: boolean; message?: string; script?: VideoScript; scene?: VideoScene };
-type GenerateResponse = { ok: boolean; jobId?: string; message?: string };
-type JobResponse = { ok: boolean; status?: string; videoUrl?: string; error?: string };
+type GenerateResponse = { ok: boolean; jobId?: string; generationId?: string; recoveryToken?: string; message?: string; retryAfter?: number };
+type JobResponse = { ok: boolean; status?: string; videoUrl?: string; generationId?: string; error?: string; retryAfter?: number };
 type MergeErrorResponse = { ok?: boolean; message?: string };
 type NormalizedImageCache = { source: File; aspectRatio: VideoAspectRatio; file: File };
 
@@ -419,12 +419,16 @@ export default function VideoShareScriptPage() {
     }
   }
 
-  async function pollExistingVideoJob(sceneNumber: number, jobId: string) {
+  async function pollExistingVideoJob(sceneNumber: number, jobId: string, generationId: string, recoveryToken = '') {
     while (mountedRef.current) {
       setOverallStatus(`Đang chờ xử lý cảnh ${sceneNumber}/${sceneCount}`);
-      const response = await fetch(`/api/job?jobId=${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+      const query = new URLSearchParams({ jobId, generationId });
+      if (recoveryToken) query.set('recoveryToken', recoveryToken);
+      const response = await fetch(`/api/job?${query.toString()}`, { cache: 'no-store' });
       const data = await readResponse<JobResponse>(response);
 
+      if (response.status === 401) { window.location.assign('/login'); throw new Error('Phiên đăng nhập đã hết hạn.'); }
+      if (response.status === 429) { await wait((data.retryAfter || 10) * 1000); continue; }
       if (!response.ok || !data.ok) throw new Error(data.error || 'Không kiểm tra được trạng thái tạo video.');
 
       const rawStatus = data.status || 'processing';
@@ -434,7 +438,7 @@ export default function VideoShareScriptPage() {
           : 'processing'
       ) as SceneVideoState['status'];
 
-      updateVideoState(sceneNumber, { status, videoUrl: data.videoUrl || undefined });
+      updateVideoState(sceneNumber, { status, generationId, videoUrl: data.videoUrl || undefined });
 
       if (status === 'completed') {
         if (!data.videoUrl) throw new Error('Video đã hoàn thành nhưng chưa có đường dẫn kết quả.');
@@ -458,22 +462,26 @@ export default function VideoShareScriptPage() {
 
     const normalizedImage = await getNormalizedImage();
     setOverallStatus(`Đang tạo cảnh ${sceneNumber}/${sceneCount}`);
-    updateVideoState(sceneNumber, { status: 'uploading', error: undefined, videoUrl: undefined, jobId: undefined });
+    updateVideoState(sceneNumber, { status: 'uploading', error: undefined, videoUrl: undefined, jobId: undefined, generationId: undefined, recoveryToken: undefined });
 
     const formData = new FormData();
     formData.append('image', normalizedImage);
     formData.append('script', payload.script);
     formData.append('model', payload.model);
+    formData.append('aspectRatio', aspectRatio);
+    formData.append('region', region);
+    formData.append('emotion', emotion);
 
     const response = await fetch('/api/generate', { method: 'POST', body: formData });
     const data = await readResponse<GenerateResponse>(response);
 
-    if (!response.ok || !data.ok || !data.jobId) {
+    if (response.status === 401) { window.location.assign('/login'); throw new Error('Phiên đăng nhập đã hết hạn.'); }
+    if (!response.ok || !data.ok || !data.jobId || !data.generationId) {
       throw new Error(data.message || `Không tạo được job cho cảnh ${sceneNumber}.`);
     }
 
-    updateVideoState(sceneNumber, { status: 'created', jobId: data.jobId });
-    return pollExistingVideoJob(sceneNumber, data.jobId);
+    updateVideoState(sceneNumber, { status: 'created', jobId: data.jobId, generationId: data.generationId, recoveryToken: data.recoveryToken });
+    return pollExistingVideoJob(sceneNumber, data.jobId, data.generationId, data.recoveryToken || '');
   }
 
   function getCompletedUrls() {
@@ -481,11 +489,17 @@ export default function VideoShareScriptPage() {
     return scriptResult.scenes.map((scene) => videoStatesRef.current[scene.sceneNumber]?.videoUrl || '');
   }
 
+  function getCompletedGenerationIds() {
+    if (!scriptResult) return [];
+    return scriptResult.scenes.map((scene) => videoStatesRef.current[scene.sceneNumber]?.generationId || '');
+  }
+
   async function mergeCompletedVideos() {
     if (!scriptResult) return;
     const videoUrls = getCompletedUrls();
+    const generationIds = getCompletedGenerationIds();
 
-    if (videoUrls.length !== sceneCount || videoUrls.some((url) => !url)) {
+    if (videoUrls.length !== sceneCount || videoUrls.some((url) => !url) || generationIds.some((id) => !id)) {
       setVideoError('Chưa đủ video cảnh để ghép.');
       return;
     }
@@ -499,7 +513,7 @@ export default function VideoShareScriptPage() {
       const response = await fetch('/api/video/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoUrls, aspectRatio })
+        body: JSON.stringify({ generationIds, videoUrls, aspectRatio, title: scriptResult.title })
       });
 
       if (!response.ok) {
@@ -515,13 +529,14 @@ export default function VideoShareScriptPage() {
 
       clearFinalVideo();
       const objectUrl = URL.createObjectURL(blob);
-      const fileName = makeVideoFileName();
+      const fileName = response.headers.get('X-Video-File-Name') || makeVideoFileName();
       finalVideoUrlRef.current = objectUrl;
       setFinalVideoUrl(objectUrl);
       setFinalFileName(fileName);
       setMergeState('completed');
       setOverallStatus('Video hoàn chỉnh');
-      setNotice('Video đã ghép thành công và đang được tải xuống thiết bị.');
+      const persistentUrl = response.headers.get('X-Video-Download-Url');
+      setNotice(persistentUrl ? 'Video đã ghép thành công, được lưu dài hạn và đang tải xuống thiết bị.' : 'Video đã ghép thành công và đang được tải xuống thiết bị.');
 
       window.setTimeout(() => {
         const anchor = document.createElement('a');

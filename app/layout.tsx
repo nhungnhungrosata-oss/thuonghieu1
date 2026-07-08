@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
+import SaasHeader from '../components/SaasHeader';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Personal Brand Video AI',
+  title: 'Personal Brand Video AI SaaS',
   description: 'Tạo video xây dựng thương hiệu cá nhân nhiều cảnh bằng DeepSeek và Google Flow'
 };
 
@@ -17,7 +18,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body><SaasHeader />{children}</body>
     </html>
   );
 }

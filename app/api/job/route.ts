@@ -1,97 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { authenticationErrorResponse, requireApiUser } from '../../../lib/saas/auth';
+import {
+  getGenerationByJob,
+  getOwnedRecord,
+  linkGenerationProviderJob,
+  markArchiveFailed,
+  markArchived,
+  markProcessing,
+  markSucceeded,
+  refundGeneration
+} from '../../../lib/saas/db';
+import { createSignedVideoUrl, downloadRemoteVideo, uploadVideo } from '../../../lib/saas/storage';
+import { verifyJobRecoveryToken } from '../../../lib/saas/recovery';
+import { fetchProviderJob } from '../../../lib/useapi';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+export const maxDuration = 300;
 
-const USEAPI_ROOT = 'https://api.useapi.net/v1/google-flow';
-
-function getVideoFromJob(job: any) {
-  const media = job?.response?.media || job?.media || [];
-  if (!Array.isArray(media) || media.length === 0) return { videoUrl: '', mediaGenerationId: '' };
-
-  const firstWithUrl = media.find((item) => typeof item?.videoUrl === 'string') || media[0];
-  return {
-    videoUrl: typeof firstWithUrl?.videoUrl === 'string' ? firstWithUrl.videoUrl : '',
-    mediaGenerationId: typeof firstWithUrl?.mediaGenerationId === 'string' ? firstWithUrl.mediaGenerationId : ''
-  };
-}
-
-function getDetailedJobError(job: any) {
-  const messages = new Set<string>();
-  const add = (value: unknown) => {
-    if (typeof value === 'string' && value.trim()) messages.add(value.trim());
-  };
-
-  add(job?.error);
-  add(job?.errorDetails);
-  add(job?.response?.error?.message);
-  add(job?.response?.error?.status);
-  add(job?.response?.message);
-
-  const media = job?.response?.media || job?.media || [];
-  if (Array.isArray(media)) {
-    for (const item of media) {
-      add(item?.error);
-      add(item?.errorDetails);
-      add(item?.mediaMetadata?.mediaStatus?.error?.message);
-      add(item?.mediaMetadata?.mediaStatus?.error?.code ? `Google Flow error code: ${item.mediaMetadata.mediaStatus.error.code}` : '');
-      add(item?.mediaMetadata?.mediaStatus?.mediaGenerationStatus);
-    }
-  }
-
-  const attempts = job?.response?.captcha?.attempts;
-  if (Array.isArray(attempts)) {
-    for (const attempt of attempts) add(attempt?.error);
-  }
-
-  return Array.from(messages).join(' | ');
+async function archive(generationId: string, userId: string, url: string) {
+  const buffer = await downloadRemoteVideo(url);
+  const stored = await uploadVideo(`${userId}/scenes/${generationId}.mp4`, buffer);
+  await markArchived(generationId, stored);
+  return createSignedVideoUrl(stored.bucket, stored.path, 3600);
 }
 
 export async function GET(request: NextRequest) {
-  const token = process.env.USEAPI_TOKEN?.trim();
-  if (!token) {
-    return NextResponse.json({ ok: false, error: 'Thiếu USEAPI_TOKEN trong Environment Variables.' }, { status: 500 });
-  }
-
-  const jobId = request.nextUrl.searchParams.get('jobId')?.trim();
-  if (!jobId) {
-    return NextResponse.json({ ok: false, error: 'Thiếu jobId.' }, { status: 400 });
-  }
-
-  const response = await fetch(`${USEAPI_ROOT}/jobs/${jobId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: 'no-store'
-  });
-
-  const text = await response.text();
-  let job: any;
   try {
-    job = JSON.parse(text);
-  } catch {
-    job = { rawText: text };
-  }
+    const { user } = await requireApiUser(request);
+    const jobId = request.nextUrl.searchParams.get('jobId')?.trim();
+    const generationId = request.nextUrl.searchParams.get('generationId')?.trim();
+    const recoveryToken = request.nextUrl.searchParams.get('recoveryToken')?.trim() || '';
+    if (!jobId) return NextResponse.json({ ok: false, error: 'Thiếu jobId.' }, { status: 400 });
 
-  if (!response.ok) {
+    let generation = await getGenerationByJob(user.id, jobId);
+    if (!generation && generationId && recoveryToken) {
+      const tokenValid = verifyJobRecoveryToken(recoveryToken, { userId: user.id, generationId, jobId });
+      if (tokenValid) {
+        const recovered = await getOwnedRecord('generations', user.id, generationId);
+        if (recovered && (!recovered.provider_job_id || recovered.provider_job_id === jobId)) {
+          if (!recovered.provider_job_id) await linkGenerationProviderJob(recovered.id, jobId);
+          generation = { ...recovered, provider_job_id: jobId } as typeof generation;
+        }
+      }
+    }
+    if (!generation) {
+      return NextResponse.json({ ok: false, error: 'Job không tồn tại hoặc không thuộc tài khoản này.' }, { status: 404 });
+    }
+
+    if (generation.status === 'succeeded' && generation.storage_status === 'archived' && generation.storage_bucket && generation.storage_path) {
+      const videoUrl = await createSignedVideoUrl(generation.storage_bucket, generation.storage_path, 3600);
+      return NextResponse.json({ ok: true, status: 'completed', generationId: generation.id, videoUrl, error: '' });
+    }
+
+    const job = await fetchProviderJob(jobId);
+    if (job.status === 'failed') {
+      const message = job.error || 'Provider báo tạo video thất bại.';
+      await refundGeneration(generation.id, message);
+      return NextResponse.json({ ok: true, status: 'failed', generationId: generation.id, videoUrl: '', error: message });
+    }
+
+    if (job.status === 'completed') {
+      if (!job.videoUrl) {
+        return NextResponse.json({ ok: true, status: 'processing', generationId: generation.id, videoUrl: '', error: 'File video chưa sẵn sàng.' });
+      }
+      await markSucceeded(generation.id, job.rawStatus, job.videoUrl, job.mediaGenerationId);
+      let videoUrl = job.videoUrl;
+      try {
+        videoUrl = await archive(generation.id, user.id, job.videoUrl);
+      } catch (error) {
+        await markArchiveFailed(generation.id, error instanceof Error ? error.message : 'Lưu video thất bại.').catch(() => undefined);
+      }
+      return NextResponse.json({ ok: true, status: 'completed', generationId: generation.id, videoUrl, error: '' });
+    }
+
+    await markProcessing(generation.id, job.rawStatus);
+    return NextResponse.json({ ok: true, status: job.status, generationId: generation.id, videoUrl: '', error: job.error });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AuthenticationError') return authenticationErrorResponse(error);
+    const status = Number((error as { status?: number })?.status || 500);
     return NextResponse.json(
-      {
-        ok: false,
-        error: `Kiểm tra job lỗi HTTP ${response.status}: ${job?.error || job?.message || 'Không rõ lỗi.'}`,
-        raw: job
-      },
-      { status: response.status }
+      { ok: false, error: error instanceof Error ? error.message : 'Không kiểm tra được job.', retryAfter: status === 429 ? 10 : undefined },
+      { status }
     );
   }
-
-  const { videoUrl, mediaGenerationId } = getVideoFromJob(job);
-  const detailedError = getDetailedJobError(job);
-
-  return NextResponse.json({
-    ok: true,
-    status: job.status || 'unknown',
-    videoUrl,
-    mediaGenerationId,
-    error: detailedError,
-    raw: job
-  });
 }

@@ -14,6 +14,8 @@ export type SceneVideoState = {
   sceneNumber: number;
   status: SceneVideoStatus;
   jobId?: string;
+  generationId?: string;
+  recoveryToken?: string;
   videoUrl?: string;
   error?: string;
 };
